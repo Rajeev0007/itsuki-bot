@@ -4,11 +4,11 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 function generateCrash(): number {
@@ -27,7 +27,7 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { wallet } = await UserManager.getBalance(interaction.user.id);
-    const bet         = fmt.parseAmount(interaction.options.get('bet')!.value as string, wallet);
+    const bet = fmt.parseAmount(interaction.options.get('bet')!.value as string, wallet);
     const autoCashout = interaction.options.get('cashout')?.value as number | null ?? null;
     if (!bet || bet < config.gambling.minBet || bet > config.gambling.maxBet)
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
@@ -39,7 +39,7 @@ export default new Command({
 
     const buildC = (mult: number, status: string) => new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent([`# 🚀 Crash`, status].join('\n'))
+        new TextDisplayBuilder().setContent([`# Crash`, status].join('\n'))
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -48,9 +48,9 @@ export default new Command({
       ].filter(Boolean).join('\n')));
 
     const cashoutBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`crash_cashout:${interaction.user.id}`).setLabel('Cash Out!').setStyle(ButtonStyle.Success).setEmoji('💰'),
+      new ButtonBuilder().setCustomId(`crash_cashout:${interaction.user.id}`).setLabel('Cash Out!').setStyle(ButtonStyle.Success),
     );
-    const msg = await interaction.editReply({ components: [buildC(currentMult, '🚀 Rocket is climbing… Cash out before it crashes!').addActionRowComponents(cashoutBtn)] });
+    const msg = await interaction.editReply({ components: [buildC(currentMult, 'Rocket is climbing… Cash out before it crashes!').addActionRowComponents(cashoutBtn)] });
     const collector = (msg as { createMessageComponentCollector: (o: { filter: (i: { user: { id: string }; customId: string }) => boolean; time: number; max: number }) => { on: (e: string, cb: (...a: unknown[]) => void) => void; stop: (r?: string) => void } }).createMessageComponentCollector({
       filter: (i) => i.user.id === interaction.user.id && i.customId.startsWith('crash_'), time: 20_000, max: 1,
     });
@@ -67,14 +67,14 @@ export default new Command({
     });
     collector.on('end', async (_: unknown, reason: string) => {
       clearInterval(interval);
-      const won    = cashedOut && cashoutMult !== null && cashoutMult > 1.0;
+      const won = cashedOut && cashoutMult !== null && cashoutMult >= 1.0;
       const payout = won ? Math.floor(bet * cashoutMult!) : 0;
       if (payout > 0) await UserManager.addWallet(interaction.user.id, payout);
       await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
       if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
-      const eco     = await UserManager.getEconomy(interaction.user.id);
+      const eco = await UserManager.getEconomy(interaction.user.id);
       const crashed = reason === 'crashed' || !cashedOut;
-      const status  = crashed ? `# 💥 Crashed at ${crashPoint.toFixed(2)}x! You lost ${fmt.coins(bet)}.` : `# 💰 Cashed out at ${cashoutMult?.toFixed(2)}x! Won ${fmt.coins(payout - bet)}!`;
+      const status = crashed ? `# Crashed at ${crashPoint.toFixed(2)}x! You lost ${fmt.coins(bet)}.` : `# Cashed out at ${cashoutMult?.toFixed(2)}x! Won ${fmt.coins(payout - bet)}!`;
       const c = buildC(crashed ? crashPoint : cashoutMult ?? 1, status);
       c.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`));

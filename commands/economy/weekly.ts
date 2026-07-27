@@ -3,11 +3,11 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
+import { Command } from '../../structures/Command';
 import EconomyManager from '../../managers/EconomyManager';
-import UserManager    from '../../managers/UserManager';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import UserManager from '../../managers/UserManager';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 export default new Command({
@@ -27,7 +27,7 @@ export default new Command({
     const eco = await UserManager.getEconomy(interaction.user.id);
     const c = new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent([`# 🗓️ Weekly Reward`, `${interaction.user} claimed their weekly reward!`].join('\n'))
+        new TextDisplayBuilder().setContent([`# Weekly Reward`, `${interaction.user} claimed their weekly reward!`].join('\n'))
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([

@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicError, musicSuccess } from '../../utils/MusicUtil';
 
 export default new Command({
@@ -15,6 +15,6 @@ export default new Command({
     if (member.voice.channel.id !== session.voiceChannel.id)
       return interaction.editReply(musicError(`You must be in <#${session.voiceChannel.id}> to use this.`) as never);
     await music.destroyPlayer(interaction.guild!.id);
-    return interaction.editReply(musicSuccess('👋 Left the voice channel and cleared the queue.') as never);
+    return interaction.editReply(musicSuccess(' Left the voice channel and cleared the queue.') as never);
   },
 });

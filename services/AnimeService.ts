@@ -11,6 +11,14 @@ import config from '../config/config';
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
 const WAIFU_BASE = 'https://api.waifu.pics/sfw';
 
+// See GifService.ts — same UA-based blocking issue affects these hosts too.
+const http = axios.create({
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (compatible; ItsukiBot/1.0; +https://discord.com)',
+    'Accept':     'application/json',
+  },
+});
+
 export interface JikanAnime {
   mal_id: number; title: string; title_english?: string;
   type?: string; episodes?: number; status?: string; score?: number;
@@ -23,7 +31,7 @@ export interface JikanAnime {
 const AnimeService = {
   async searchAnime(query: string): Promise<JikanAnime[]> {
     try {
-      const res = await axios.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/anime`, {
+      const res = await http.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/anime`, {
         params: { q: query, limit: 5, sfw: true }, timeout: 8000,
       });
       return res.data?.data ?? [];
@@ -35,28 +43,28 @@ const AnimeService = {
 
   async getAnimeById(id: number): Promise<JikanAnime | null> {
     try {
-      const res = await axios.get<{ data: JikanAnime }>(`${JIKAN_BASE}/anime/${id}`, { timeout: 8000 });
+      const res = await http.get<{ data: JikanAnime }>(`${JIKAN_BASE}/anime/${id}`, { timeout: 8000 });
       return res.data?.data ?? null;
     } catch { return null; }
   },
 
   async getTopAnime(limit = 10): Promise<JikanAnime[]> {
     try {
-      const res = await axios.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/top/anime`, { params: { limit }, timeout: 8000 });
+      const res = await http.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/top/anime`, { params: { limit }, timeout: 8000 });
       return res.data?.data ?? [];
     } catch { return []; }
   },
 
   async getRandomAnime(): Promise<JikanAnime | null> {
     try {
-      const res = await axios.get<{ data: JikanAnime }>(`${JIKAN_BASE}/random/anime`, { timeout: 8000 });
+      const res = await http.get<{ data: JikanAnime }>(`${JIKAN_BASE}/random/anime`, { timeout: 8000 });
       return res.data?.data ?? null;
     } catch { return null; }
   },
 
   async searchCharacter(query: string): Promise<unknown[]> {
     try {
-      const res = await axios.get<{ data: unknown[] }>(`${JIKAN_BASE}/characters`, {
+      const res = await http.get<{ data: unknown[] }>(`${JIKAN_BASE}/characters`, {
         params: { q: query, limit: 5 }, timeout: 8000,
       });
       return res.data?.data ?? [];
@@ -65,7 +73,7 @@ const AnimeService = {
 
   async getSeasonalAnime(): Promise<JikanAnime[]> {
     try {
-      const res = await axios.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/seasons/now`, { params: { limit: 10 }, timeout: 8000 });
+      const res = await http.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/seasons/now`, { params: { limit: 10 }, timeout: 8000 });
       return res.data?.data ?? [];
     } catch { return []; }
   },
@@ -75,9 +83,12 @@ const AnimeService = {
       'kiss','lick','pat','smug','bonk','yeet','blush','smile','wave','highfive','dance'];
     const t = validTypes.includes(type) ? type : 'waifu';
     try {
-      const res = await axios.get<{ url: string }>(`${WAIFU_BASE}/${t}`, { timeout: 5000 });
+      const res = await http.get<{ url: string }>(`${WAIFU_BASE}/${t}`, { timeout: 5000 });
       return res.data?.url ?? null;
-    } catch { return null; }
+    } catch (err) {
+      logger.warn(`[AnimeService] getWaifuImage("${t}") failed: ${(err as Error).message}`);
+      return null;
+    }
   },
 
   async drawCard(): Promise<{

@@ -3,15 +3,15 @@
  * @description Smart global command sync on startup.
  *
  * On every boot:
- *  1. Load local command definitions from disk.
- *  2. Fetch what Discord already has registered globally.
- *  3. Diff both sets (added / changed / removed).
- *  4. If nothing changed  → skip the API call entirely.
- *  5. If anything changed → bulk PUT only what's needed and log what changed.
+ * 1. Load local command definitions from disk.
+ * 2. Fetch what Discord already has registered globally.
+ * 3. Diff both sets (added / changed / removed).
+ * 4. If nothing changed → skip the API call entirely.
+ * 5. If anything changed → bulk PUT only what's needed and log what changed.
  */
 
 import { REST, Routes } from 'discord.js';
-import fs   from 'fs';
+import fs from 'fs';
 import path from 'path';
 import logger from './Logger';
 
@@ -76,12 +76,12 @@ function normalize(cmd: unknown): string {
   // trigger a false-positive diff when Discord echoes them back.
   const base = cmd as RawCommand;
   const normalised: Record<string, unknown> = {
-    name:                       base.name,
-    description:                base.description                ?? '',
-    options:                    base.options                    ?? [],
+    name: base.name,
+    description: base.description ?? '',
+    options: base.options ?? [],
     default_member_permissions: base.default_member_permissions ?? null,
-    dm_permission:              base.dm_permission              ?? true,
-    nsfw:                       base.nsfw                       ?? false,
+    dm_permission: base.dm_permission ?? true,
+    nsfw: base.nsfw ?? false,
   };
 
   return JSON.stringify(clean(normalised));
@@ -89,7 +89,7 @@ function normalize(cmd: unknown): string {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export async function autoDeployCommands(
-  token:    string,
+  token: string,
   clientId: string,
   commandsDir: string,
 ): Promise<void> {
@@ -114,7 +114,7 @@ export async function autoDeployCommands(
   const registeredMap = new Map(registered.map((c) => [c.name, c]));
 
   // 3. Diff
-  const added:   string[] = [];
+  const added: string[] = [];
   const changed: string[] = [];
   const removed: string[] = [];
 
@@ -136,7 +136,7 @@ export async function autoDeployCommands(
   }
 
   // 5. Log what changed, then sync
-  if (added.length)   logger.info(`[AutoDeploy] New    : ${added.join(', ')}`);
+  if (added.length) logger.info(`[AutoDeploy] New : ${added.join(', ')}`);
   if (changed.length) logger.info(`[AutoDeploy] Updated: ${changed.join(', ')}`);
   if (removed.length) logger.info(`[AutoDeploy] Removed: ${removed.join(', ')}`);
 
@@ -146,7 +146,7 @@ export async function autoDeployCommands(
       Routes.applicationCommands(clientId),
       { body: [...local.values()] },
     )) as unknown[];
-    logger.info(`[AutoDeploy] ✅ ${result.length} global commands registered.`);
+    logger.info(`[AutoDeploy] ${result.length} global commands registered.`);
   } catch (err) {
     logger.error('[AutoDeploy] Registration failed:', (err as Error).message);
   }

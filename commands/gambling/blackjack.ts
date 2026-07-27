@@ -4,14 +4,14 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 import { SUITS, CARD_VALUES } from '../../utils/Constants';
-import { getStore }   from '../../database/JsonStore';
+import { getStore } from '../../database/JsonStore';
 
 const gamblingDB = getStore('gambling');
 
@@ -28,15 +28,15 @@ function renderHand(hand: Card[]): string { return hand.map(c => `${c.val}${c.su
 
 function buildContainer(pHand: Card[], dHand: Card[], bet: number, wallet: number, status: string, hideDealer = false): ContainerBuilder {
   const pv = handValue(pHand);
-  const dCards = hideDealer ? [`${dHand[0].val}${dHand[0].suit}`, '🂠'] : dHand.map(c => `${c.val}${c.suit}`);
+  const dCards = hideDealer ? [`${dHand[0].val}${dHand[0].suit}`, ''] : dHand.map(c => `${c.val}${c.suit}`);
   const dv = hideDealer ? cardValue(dHand[0]) : handValue(dHand);
   return new ContainerBuilder()
     .addTextDisplayComponents(new TextDisplayBuilder().setContent([`# ${E.CARDS} Blackjack`, status].join('\n')))
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-      `**Dealer** — ${hideDealer ? `${dv}+?` : dv}`, `> ${dCards.join('  ')}`, '',
-      `**You** — **${pv}** ${pv > 21 ? '💥 BUST' : pv === 21 ? '🃏 21!' : ''}`, `> ${renderHand(pHand)}`, '',
-      `${E.COINS} **Bet:** ${fmt.coins(bet)}  • ${E.WALLET} **Wallet:** ${fmt.coins(wallet)}`,
+      `**Dealer** — ${hideDealer ? `${dv}+?` : dv}`, `> ${dCards.join(' ')}`, '',
+      `**You** — **${pv}** ${pv > 21 ? ' BUST' : pv === 21 ? ' 21!' : ''}`, `> ${renderHand(pHand)}`, '',
+      `${E.COINS} **Bet:** ${fmt.coins(bet)} • ${E.WALLET} **Wallet:** ${fmt.coins(wallet)}`,
     ].join('\n')));
 }
 
@@ -53,7 +53,7 @@ export default new Command({
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
-    const deck   = buildDeck();
+    const deck = buildDeck();
     const player = [deck.pop()!, deck.pop()!];
     const dealer = [deck.pop()!, deck.pop()!];
     await UserManager.addWallet(interaction.user.id, -bet);
@@ -62,9 +62,9 @@ export default new Command({
     const pBJ = handValue(player) === 21, dBJ = handValue(dealer) === 21;
     if (pBJ || dBJ) {
       let payout = 0, txt = '';
-      if (pBJ && dBJ) { payout = bet; txt = '🤝 Both have Blackjack — Push!'; }
-      else if (pBJ)   { payout = Math.floor(bet * 2.5); txt = `# Blackjack! You win ${fmt.coins(payout)}!`; }
-      else             { txt = `# Dealer has Blackjack. You lose ${fmt.coins(bet)}.`; }
+      if (pBJ && dBJ) { payout = bet; txt = ' Both have Blackjack — Push!'; }
+      else if (pBJ) { payout = Math.floor(bet * 2.5); txt = `# Blackjack! You win ${fmt.coins(payout)}!`; }
+      else { txt = `# Dealer has Blackjack. You lose ${fmt.coins(bet)}.`; }
       if (payout > 0) await UserManager.addWallet(interaction.user.id, payout);
       const fe = await UserManager.getEconomy(interaction.user.id);
       return interaction.editReply({ components: [buildContainer(player, dealer, bet, fe.wallet, txt, false)] });
@@ -72,9 +72,9 @@ export default new Command({
 
     const gs = { player, dealer, deck, bet, userId: interaction.user.id };
     const btns = () => new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`bj_hit:${interaction.user.id}`).setLabel('Hit').setStyle(ButtonStyle.Primary).setEmoji('🎴'),
-      new ButtonBuilder().setCustomId(`bj_stand:${interaction.user.id}`).setLabel('Stand').setStyle(ButtonStyle.Secondary).setEmoji('✋'),
-      new ButtonBuilder().setCustomId(`bj_double:${interaction.user.id}`).setLabel('Double Down').setStyle(ButtonStyle.Danger).setEmoji('💰').setDisabled(eco0.wallet < bet),
+      new ButtonBuilder().setCustomId(`bj_hit:${interaction.user.id}`).setLabel('Hit').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`bj_stand:${interaction.user.id}`).setLabel('Stand').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`bj_double:${interaction.user.id}`).setLabel('Double Down').setStyle(ButtonStyle.Danger).setDisabled(eco0.wallet < bet),
     );
 
     const msg = await interaction.editReply({ components: [buildContainer(player, dealer, bet, eco0.wallet, '**Your turn.** Hit or Stand?', true).addActionRowComponents(btns())] });
@@ -86,11 +86,11 @@ export default new Command({
       collector.stop();
       const pv = handValue(fp), dv = handValue(fd);
       let payout = 0, resultMsg = '';
-      if (action === 'bust')     { resultMsg = `# Bust! You lose ${fmt.coins(gs.bet)}.`; }
-      else if (dv > 21)          { payout = gs.bet * 2; resultMsg = `# Dealer busts! You win ${fmt.coins(gs.bet)}!`; }
-      else if (pv > dv)          { payout = gs.bet * 2; resultMsg = `# You win ${fmt.coins(gs.bet)}!`; }
-      else if (pv === dv)        { payout = gs.bet; resultMsg = '# Push! Bet returned.'; }
-      else                       { resultMsg = `# Dealer wins. You lose ${fmt.coins(gs.bet)}.`; }
+      if (action === 'bust') { resultMsg = `# Bust! You lose ${fmt.coins(gs.bet)}.`; }
+      else if (dv > 21) { payout = gs.bet * 2; resultMsg = `# Dealer busts! You win ${fmt.coins(gs.bet)}!`; }
+      else if (pv > dv) { payout = gs.bet * 2; resultMsg = `# You win ${fmt.coins(gs.bet)}!`; }
+      else if (pv === dv) { payout = gs.bet; resultMsg = '# Push! Bet returned.'; }
+      else { resultMsg = `# Dealer wins. You lose ${fmt.coins(gs.bet)}.`; }
       if (payout > 0) await UserManager.addWallet(gs.userId, payout);
       const won = payout > gs.bet;
       await UserManager.incrementStat(gs.userId, 'gamesPlayed');

@@ -14,7 +14,7 @@ import musicConfig from '../config/music';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { DefaultSources } = require('lavende') as { DefaultSources: Record<string, string> };
 
-const URL_REGEX           = /^https?:\/\//i;
+const URL_REGEX = /^https?:\/\//i;
 const SOURCE_PREFIX_REGEX = /^([a-z .]+):/i;
 
 export function buildSearchQuery(query: string): string {
@@ -24,7 +24,7 @@ export function buildSearchQuery(query: string): string {
   const match = trimmed.match(SOURCE_PREFIX_REGEX);
   if (match && DefaultSources[match[1].toLowerCase()]) {
     const source = DefaultSources[match[1].toLowerCase()];
-    const rest   = trimmed.slice(match[0].length).trim();
+    const rest = trimmed.slice(match[0].length).trim();
     return `${source}:${rest}`;
   }
 
@@ -48,9 +48,9 @@ export function progressBar(current: number, total: number, len = 20): string {
 }
 
 export interface MusicCheckResult {
-  error:   string | null;
+  error: string | null;
   session: import('../managers/MusicManager').GuildSession | null;
-  player:  unknown;
+  player: unknown;
 }
 
 export function musicCheck(
@@ -59,26 +59,26 @@ export function musicCheck(
   opts: { needsQueue?: boolean; needsPlaying?: boolean } = {},
 ): MusicCheckResult {
   const member = interaction.member as { voice?: { channel?: { id: string } } } | null;
-  const guild  = interaction.guild;
+  const guild = interaction.guild;
 
   if (!member?.voice?.channel) {
-    return { error: '🎵 You need to be in a voice channel first.', session: null, player: null };
+    return { error: ' You need to be in a voice channel first.', session: null, player: null };
   }
 
   const session = manager.getSession(guild!.id);
-  const player  = manager.getPlayer(guild!.id);
+  const player = manager.getPlayer(guild!.id);
 
   if (opts.needsQueue && !session) {
-    return { error: '🎵 Nothing is playing right now.', session: null, player: null };
+    return { error: ' Nothing is playing right now.', session: null, player: null };
   }
   if (opts.needsPlaying && (!session || !session.current)) {
-    return { error: '🎵 Nothing is playing right now.', session: null, player: null };
+    return { error: ' Nothing is playing right now.', session: null, player: null };
   }
   if (session && member.voice.channel.id !== session.voiceChannel.id) {
     return {
-      error:   `You must be in <#${session.voiceChannel.id}> to use music commands.`,
+      error: `You must be in <#${session.voiceChannel.id}> to use music commands.`,
       session: null,
-      player:  null,
+      player: null,
     };
   }
 

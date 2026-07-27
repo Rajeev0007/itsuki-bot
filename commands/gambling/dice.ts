@@ -3,14 +3,14 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
-const DICE_FACES = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+const DICE_FACES = ['','','','','',''];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default new Command({
@@ -27,15 +27,15 @@ export default new Command({
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
     for (let i = 0; i < 3; i++) {
-      await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Rolling the dice…\n**You:** ${DICE_FACES[Math.floor(Math.random()*6)]}  ·  **House:** ${DICE_FACES[Math.floor(Math.random()*6)]}`) )] });
+      await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Rolling the dice…\n**You:** ${DICE_FACES[Math.floor(Math.random()*6)]} · **House:** ${DICE_FACES[Math.floor(Math.random()*6)]}`) )] });
       await sleep(400);
     }
 
     const pRoll = fmt.randomInt(1, 6);
     const hRoll = fmt.randomInt(1, 6);
-    const won   = pRoll > hRoll;
-    const tie   = pRoll === hRoll;
-    const net   = tie ? 0 : won ? bet : -bet;
+    const won = pRoll > hRoll;
+    const tie = pRoll === hRoll;
+    const net = tie ? 0 : won ? bet : -bet;
     await UserManager.addWallet(interaction.user.id, net);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');

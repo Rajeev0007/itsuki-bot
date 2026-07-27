@@ -24,8 +24,8 @@ export default new Command({
     const shopItems = config.shop.items;
     const lines = Object.entries(inv).filter(([, qty]) => qty > 0).map(([id, qty]) => {
       const item = shopItems.find((i) => i.id === id);
-      if (!item) return `>  **${id}** x${qty}`;
-      return `> ${item.emoji} **${item.name}** — x${qty}\n> *${item.description}*`;
+      if (!item) return `> **${id}** x${qty}`;
+      return `> **${item.name}** — x${qty}\n> *${item.description}*`;
     });
     if (!lines.length) return interaction.editReply({ ...CB.errorResponse('Empty', 'Inventory is empty.') } as never);
     const c = new ContainerBuilder()

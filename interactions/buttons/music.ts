@@ -1,11 +1,11 @@
 import { type ButtonInteraction, type Client } from 'discord.js';
-import music                from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicError, musicSuccess } from '../../utils/MusicUtil';
 
 export const customId = 'music_:*';
 
 export async function execute(interaction: ButtonInteraction, client: Client): Promise<void> {
-  const rawId   = interaction.customId;
+  const rawId = interaction.customId;
   const guildId = interaction.guild?.id;
 
   if (!guildId) {
@@ -14,11 +14,11 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
   }
 
   const session = music.getSession(guildId);
-  const player  = music.getPlayer(guildId);
+  const player = music.getPlayer(guildId);
 
   if (rawId.startsWith('music_qpage:')) {
     const parts = rawId.split(':');
-    const page  = parseInt(parts[2], 10);
+    const page = parseInt(parts[2], 10);
     if (!session) { await interaction.reply({ ...musicError('Nothing is playing.'), ephemeral: true }); return; }
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { buildQueuePage } = require('../../commands/music/queue') as { buildQueuePage: (s: unknown, p: number) => unknown };
@@ -49,7 +49,7 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
   }
   if (rawId.startsWith('music_skip:')) {
     await p.skip();
-    await interaction.update(musicSuccess('⏭️ Skipped.') as Parameters<typeof interaction.update>[0]);
+    await interaction.update(musicSuccess(' Skipped.') as Parameters<typeof interaction.update>[0]);
     return;
   }
   if (rawId.startsWith('music_loop:')) {
@@ -61,7 +61,7 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
   }
   if (rawId.startsWith('music_stop:')) {
     await music.destroyPlayer(guildId);
-    await interaction.update(musicSuccess('⏹️ Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0]);
+    await interaction.update(musicSuccess(' Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0]);
     return;
   }
 }

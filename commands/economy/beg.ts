@@ -3,14 +3,14 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
+import { Command } from '../../structures/Command';
 import EconomyManager from '../../managers/EconomyManager';
-import UserManager    from '../../managers/UserManager';
-import fmt            from '../../utils/Formatter';
+import UserManager from '../../managers/UserManager';
+import fmt from '../../utils/Formatter';
 import { EMOJI as E } from '../../utils/Constants';
 
 const BEG_SUCCESS = ['A generous stranger tossed you some coins!','Someone felt sorry for you and donated.','A rich passerby dropped some change.'];
-const BEG_FAIL    = ['Everyone ignored you.','Someone told you to get a job.','Nobody had spare change.'];
+const BEG_FAIL = ['Everyone ignored you.','Someone told you to get a job.','Nobody had spare change.'];
 
 export default new Command({
   data: new SlashCommandBuilder().setName('beg').setDescription('Beg for coins. (1 min cooldown)'),
@@ -29,7 +29,7 @@ export default new Command({
     if (result.success && 'amount' in result) {
       const c = new ContainerBuilder()
         .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-          new TextDisplayBuilder().setContent([`# 🙏 Someone Helped!`, fmt.randomItem(BEG_SUCCESS)].join('\n'))
+          new TextDisplayBuilder().setContent([`# Someone Helped!`, fmt.randomItem(BEG_SUCCESS)].join('\n'))
         ).setThumbnailAccessory(new ThumbnailBuilder().setURL(av)))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([`${E.COINS} **Received:** ${fmt.coins(result.amount)}`, `${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`].join('\n')));

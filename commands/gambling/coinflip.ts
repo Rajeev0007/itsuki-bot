@@ -3,13 +3,13 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
-import { getStore }   from '../../database/JsonStore';
+import { getStore } from '../../database/JsonStore';
 
 const gamblingDB = getStore('gambling');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -19,7 +19,7 @@ export default new Command({
   data: new SlashCommandBuilder()
     .setName('coinflip').setDescription('Flip a coin — bet on heads or tails.')
     .addStringOption((o) => o.setName('choice').setDescription('heads or tails').setRequired(true)
-      .addChoices({ name: '🪙 Heads', value: 'heads' }, { name: '🪙 Tails', value: 'tails' }))
+      .addChoices({ name: ' Heads', value: 'heads' }, { name: ' Tails', value: 'tails' }))
     .addStringOption((o) => o.setName('bet').setDescription('Amount to bet').setRequired(true)),
   category: 'gambling',
   async execute(interaction: ChatInputCommandInteraction) {
@@ -37,19 +37,19 @@ export default new Command({
     }
 
     const result = Math.random() < 0.5 ? 'heads' : 'tails';
-    const won    = result === choice;
-    const net    = won ? bet : -bet;
+    const won = result === choice;
+    const net = won ? bet : -bet;
     await UserManager.addWallet(interaction.user.id, net);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
     await gamblingDB.ensure(interaction.user.id, { coinflip: { wins: 0, losses: 0 } });
     if (won) await gamblingDB.add(`${interaction.user.id}.coinflip.wins`, 1);
-    else     await gamblingDB.add(`${interaction.user.id}.coinflip.losses`, 1);
+    else await gamblingDB.add(`${interaction.user.id}.coinflip.losses`, 1);
 
     const eco = await UserManager.getEconomy(interaction.user.id);
     const c = new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent([won ? `# ${E.WIN} You Won!` : `# ${E.LOSE} You Lost!`, `The coin landed on **${result === 'heads' ? '🪙 Heads' : '🪙 Tails'}**`].join('\n'))
+        new TextDisplayBuilder().setContent([won ? `# ${E.WIN} You Won!` : `# ${E.LOSE} You Lost!`, `The coin landed on **${result === 'heads' ? ' Heads' : ' Tails'}**`].join('\n'))
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([

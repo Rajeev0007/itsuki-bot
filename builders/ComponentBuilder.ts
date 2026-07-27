@@ -12,8 +12,8 @@ import config from '../config/config';
 import { EMOJI as E } from '../utils/Constants';
 
 /* Low-level helpers */
-export const text  = (content: string) => new TextDisplayBuilder().setContent(content);
-export const sep   = (large = false) =>
+export const text = (content: string) => new TextDisplayBuilder().setContent(content);
+export const sep = (large = false) =>
   new SeparatorBuilder()
     .setSpacing(large ? SeparatorSpacingSize.Large : SeparatorSpacingSize.Small)
     .setDivider(true);
@@ -47,9 +47,9 @@ export function button(label: string, customId: string, style = ButtonStyle.Seco
   if (emoji) b.setEmoji(emoji);
   return b;
 }
-export const primaryBtn   = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Primary,   emoji);
-export const successBtn   = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Success,   emoji);
-export const dangerBtn    = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Danger,    emoji);
+export const primaryBtn = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Primary, emoji);
+export const successBtn = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Success, emoji);
+export const dangerBtn = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Danger, emoji);
 export const secondaryBtn = (label: string, customId: string, emoji?: string) => button(label, customId, ButtonStyle.Secondary, emoji);
 
 export function linkBtn(label: string, url: string, emoji?: string): ButtonBuilder {
@@ -84,7 +84,7 @@ export function successResponse(title: string, description: string): { component
 export function cooldownResponse(command: string, remainingMs: number): { components: ContainerBuilder[] } {
   const secs = Math.ceil(remainingMs / 1000);
   const mins = Math.floor(secs / 60);
-  const s    = secs % 60;
+  const s = secs % 60;
   const time = mins > 0 ? `${mins}m ${s}s` : `${s}s`;
   const container = new ContainerBuilder()
     .addTextDisplayComponents(text(`# ${E.COOLDOWN} Slow Down!\nYou can use \`/${command}\` again in **${time}**.`));
@@ -92,11 +92,11 @@ export function cooldownResponse(command: string, remainingMs: number): { compon
 }
 
 export function navRow(homeId = 'nav_home', closeId = 'nav_close'): ActionRowBuilder<ButtonBuilder> {
-  return row(secondaryBtn('Home', homeId, '🏠'), dangerBtn('Close', closeId, '✖️'));
+  return row(secondaryBtn('Home', homeId, ''), dangerBtn('Close', closeId, ''));
 }
 
 export function confirmRow(confirmId: string, cancelId = 'confirm_cancel'): ActionRowBuilder<ButtonBuilder> {
-  return row(successBtn('Confirm', confirmId, '✅'), dangerBtn('Cancel', cancelId, '✖️'));
+  return row(successBtn('Confirm', confirmId, ''), dangerBtn('Cancel', cancelId, ''));
 }
 
 export function paginationRow(prevId: string, nextId: string, current: number, total: number): ActionRowBuilder<ButtonBuilder> {

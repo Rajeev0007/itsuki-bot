@@ -3,15 +3,15 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
+import { Command } from '../../structures/Command';
 import EconomyManager from '../../managers/EconomyManager';
-import UserManager    from '../../managers/UserManager';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import UserManager from '../../managers/UserManager';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const FRAMES = ['💼 Clocking in…','💪 Putting in the work…','⏳ Almost done with your shift…','💰 Collecting your pay…'];
+const FRAMES = [' Clocking in…',' Putting in the work…',' Almost done with your shift…',' Collecting your pay…'];
 
 export default new Command({
   data: new SlashCommandBuilder().setName('work').setDescription('Work at a random job to earn coins. (1 hour cooldown)'),

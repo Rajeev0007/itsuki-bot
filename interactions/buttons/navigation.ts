@@ -52,7 +52,7 @@ export async function execute(interaction: ButtonInteraction, _client: Client): 
   if (rawId === 'nav_shop' || rawId.startsWith('nav_shop:')) {
     await interaction.deferUpdate();
     const items = config.shop.items.slice(0, 8);
-    const lines = items.map((i) => `${i.emoji} **${i.name}** — ${fmt.coins(i.price)}`);
+    const lines = items.map((i) => `**${i.name}** — ${fmt.coins(i.price)}`);
 
     const container = new ContainerBuilder()
       .addTextDisplayComponents(

@@ -7,12 +7,14 @@ import {
   type Interaction, type Client, Collection,
   MessageFlags, type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Event }      from '../structures/Event';
-import { Command }    from '../structures/Command';
-import config         from '../config/config';
-import logger         from '../utils/Logger';
-import cooldowns      from '../managers/CooldownManager';
-import * as CB        from '../builders/ComponentBuilder';
+import { Event } from '../structures/Event';
+import { Command } from '../structures/Command';
+import config from '../config/config';
+import logger from '../utils/Logger';
+import cooldowns from '../managers/CooldownManager';
+import BlacklistManager from '../managers/BlacklistManager';
+import MaintenanceManager from '../managers/MaintenanceManager';
+import * as CB from '../builders/ComponentBuilder';
 import { patchReplies } from '../utils/V2Flag';
 
 const V2_EPHEMERAL = (MessageFlags.IsComponentsV2 as number) | (MessageFlags.Ephemeral as number);
@@ -22,10 +24,12 @@ export default new Event({
   async execute(
     interaction: Interaction,
     client: Client & {
-      commands?:           Collection<string, Command>;
+      commands?: Collection<string, Command>;
       interactionHandler?: { handle: (i: Interaction) => Promise<void> };
     },
   ) {
+    // Blacklisted users get nothing — no autocomplete, no component interactions, no commands.
+    if (BlacklistManager.has(interaction.user.id)) return;
 
     // ── Autocomplete ─────────────────────────────────────────────────────────
     if (interaction.isAutocomplete()) {
@@ -49,7 +53,7 @@ export default new Event({
         try {
           const i = interaction as unknown as Record<string, unknown>;
           if (!i.replied && !i.deferred) {
-            await (i.reply as (o: unknown) => Promise<void>)({ content: '❌ An error occurred.', ephemeral: true });
+            await (i.reply as (o: unknown) => Promise<void>)({ content: ' An error occurred.', ephemeral: true });
           }
         } catch { /* ignore */ }
       }
@@ -63,11 +67,11 @@ export default new Event({
 
     if (!command) {
       logger.warn(`[interactionCreate] Unknown command: /${cmdName}`);
-      await cmdInteraction.reply({ content: '❌ Unknown command.', ephemeral: true }).catch(() => {});
+      await cmdInteraction.reply({ content: ' Unknown command.', ephemeral: true }).catch(() => {});
       return;
     }
 
-    const guild  = cmdInteraction.guild;
+    const guild = cmdInteraction.guild;
     const userId = cmdInteraction.user.id;
 
     // ── Guards ────────────────────────────────────────────────────────────────
@@ -88,6 +92,17 @@ export default new Event({
       return;
     }
 
+    if (MaintenanceManager.isEnabled() && !config.owners.includes(userId)) {
+      await cmdInteraction.reply({
+        ...CB.errorResponse(
+          'Maintenance Mode',
+          MaintenanceManager.reason() ?? 'The bot is currently undergoing maintenance. Please try again later.',
+        ),
+        flags: V2_EPHEMERAL,
+      } as never).catch(() => {});
+      return;
+    }
+
     if (command.maintenance) {
       await cmdInteraction.reply({
         ...CB.errorResponse('Maintenance', 'This command is temporarily disabled.'),
@@ -97,7 +112,7 @@ export default new Event({
     }
 
     if (command.permissions.length && guild) {
-      const member  = cmdInteraction.member as { permissions?: { has: (p: string) => boolean } } | null;
+      const member = cmdInteraction.member as { permissions?: { has: (p: string) => boolean } } | null;
       const missing = command.permissions.filter((p) => !member?.permissions?.has(p));
       if (missing.length) {
         await cmdInteraction.reply({

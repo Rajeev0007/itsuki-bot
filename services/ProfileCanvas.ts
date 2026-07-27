@@ -9,7 +9,7 @@ const { createCanvas, loadImage } = require('canvas') as {
   loadImage: (src: Buffer | string) => Promise<CanvasImage>;
 };
 import https from 'https';
-import http  from 'http';
+import http from 'http';
 
 interface Canvas {
   getContext: (type: '2d') => CanvasRenderingContext2D;
@@ -84,7 +84,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return '0';
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
   return n.toLocaleString();
 }
 
@@ -97,7 +97,7 @@ export interface ProfileOptions {
 
 export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   const canvas = createCanvas(W, H);
-  const ctx    = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d');
 
   /* Background */
   const bgGrad = ctx.createLinearGradient(0, 0, W, H);
@@ -116,7 +116,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.fill();
 
   ctx.strokeStyle = 'rgba(88,101,242,0.30)';
-  ctx.lineWidth   = 1;
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(210, 24);
   ctx.lineTo(210, H - 24);
@@ -135,7 +135,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     ctx.beginPath();
     ctx.arc(AX, AY, AR + 4, 0, Math.PI * 2);
     ctx.strokeStyle = opts.prestige > 0 ? COLORS.gold : COLORS.accent;
-    ctx.lineWidth   = 4;
+    ctx.lineWidth = 4;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(AX, AY, AR, 0, Math.PI * 2);
@@ -148,9 +148,9 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     ctx.beginPath();
     ctx.arc(AX, AY, AR, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle    = COLORS.textMuted;
-    ctx.font         = 'bold 40px Sans';
-    ctx.textAlign    = 'center';
+    ctx.fillStyle = COLORS.textMuted;
+    ctx.font = 'bold 40px Sans';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText((opts.username[0] ?? '?').toUpperCase(), AX, AY);
   }
@@ -161,9 +161,9 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     ctx.beginPath();
     ctx.arc(bx, by, 14, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle    = COLORS.gold;
-    ctx.font         = 'bold 11px Sans';
-    ctx.textAlign    = 'center';
+    ctx.fillStyle = COLORS.gold;
+    ctx.font = 'bold 11px Sans';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`P${opts.prestige}`, bx, by);
   }
@@ -173,15 +173,15 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   const RX = 232;
   let cy = 38;
 
-  ctx.font         = 'bold 28px Sans';
-  ctx.fillStyle    = COLORS.text;
+  ctx.font = 'bold 28px Sans';
+  ctx.fillStyle = COLORS.text;
   ctx.textBaseline = 'top';
   ctx.fillText(opts.username, RX, cy);
 
   const lvlLabel = `LVL ${opts.level}`;
-  ctx.font        = 'bold 14px Sans';
-  const lvlW      = ctx.measureText(lvlLabel).width + 20;
-  const lvlX      = W - lvlW - 20;
+  ctx.font = 'bold 14px Sans';
+  const lvlW = ctx.measureText(lvlLabel).width + 20;
+  const lvlX = W - lvlW - 20;
   roundRect(ctx, lvlX, cy, lvlW, 26, 6);
   ctx.fillStyle = COLORS.accentGlow;
   ctx.fill();
@@ -189,7 +189,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.fillText(lvlLabel, lvlX + 10, cy + 6);
   cy += 36;
 
-  ctx.font      = '16px Sans';
+  ctx.font = '16px Sans';
   ctx.fillStyle = COLORS.textMuted;
   ctx.fillText(opts.title || 'Newcomer', RX, cy);
   cy += 26;
@@ -201,7 +201,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.fillStyle = COLORS.bar;
   ctx.fill();
   if (ratio > 0) {
-    const fillW   = Math.max(barH, ratio * barW);
+    const fillW = Math.max(barH, ratio * barW);
     const barGrad = ctx.createLinearGradient(barX, 0, barX + fillW, 0);
     barGrad.addColorStop(0, '#4752c4');
     barGrad.addColorStop(1, '#7289da');
@@ -211,7 +211,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   }
   cy += barH + 6;
 
-  ctx.font      = '13px Sans';
+  ctx.font = '13px Sans';
   ctx.fillStyle = COLORS.textDim;
   ctx.fillText(`${fmtNum(opts.xp)} / ${fmtNum(opts.xpNeeded)} XP`, barX, cy);
   const pctLabel = `${Math.round(ratio * 100)}%`;
@@ -220,19 +220,19 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
 
   /* Stats row */
   const STATS = [
-    { label: '💰 Net Worth', value: fmtNum(opts.wallet + opts.bank) },
-    { label: '👛 Wallet',    value: fmtNum(opts.wallet) },
-    { label: '🏦 Bank',      value: fmtNum(opts.bank) },
-    { label: '🎉 Wins',      value: fmtNum(opts.gamesWon) },
+    { label: ' Net Worth', value: fmtNum(opts.wallet + opts.bank) },
+    { label: ' Wallet', value: fmtNum(opts.wallet) },
+    { label: ' Bank', value: fmtNum(opts.bank) },
+    { label: ' Wins', value: fmtNum(opts.gamesWon) },
   ];
   const statW = (W - RX - 24) / STATS.length;
   STATS.forEach((s, i) => {
     const sx = RX + i * statW;
     if (i > 0) { ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(sx, cy, 1, 52); }
-    ctx.font      = '13px Sans';
+    ctx.font = '13px Sans';
     ctx.fillStyle = COLORS.textMuted;
     ctx.fillText(s.label, sx + (i === 0 ? 0 : 12), cy + 4);
-    ctx.font      = 'bold 18px Sans';
+    ctx.font = 'bold 18px Sans';
     ctx.fillStyle = COLORS.stat;
     ctx.fillText(s.value, sx + (i === 0 ? 0 : 12), cy + 24);
   });
@@ -241,9 +241,9 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   const memberDate = opts.memberSince
     ? new Date(opts.memberSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'Unknown';
-  ctx.font         = '12px Sans';
-  ctx.fillStyle    = COLORS.textDim;
-  ctx.textAlign    = 'right';
+  ctx.font = '12px Sans';
+  ctx.fillStyle = COLORS.textDim;
+  ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';
   ctx.fillText(`Member since ${memberDate}`, W - 18, H - 12);
   ctx.textAlign = 'left';

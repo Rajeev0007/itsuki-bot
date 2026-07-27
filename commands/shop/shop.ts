@@ -3,13 +3,13 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
-import { getStore }   from '../../database/JsonStore';
+import { getStore } from '../../database/JsonStore';
 
 const inventoryDB = getStore('inventory');
 
@@ -25,15 +25,15 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const sub = (interaction.options as { getSubcommand: () => string }).getSubcommand();
     if (sub === 'browse') {
-      const items      = config.shop.items;
+      const items = config.shop.items;
       const categories = [...new Set(items.map((i) => i.category))];
-      const container  = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('# 🏪 Item Shop'));
+      const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Item Shop'));
       container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true));
       for (const cat of categories) {
         const catItems = items.filter((i) => i.category === cat);
-        const lines = catItems.map((item) => `> **${item.emoji} ${item.name}** — ${fmt.coins(item.price)}\n> ${item.description} \`ID: ${item.id}\``);
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent([`**🏷️ ${cat.toUpperCase()}**`, ...lines].join('\n\n')));
+        const lines = catItems.map((item) => `> **${item.name}** — ${fmt.coins(item.price)}\n> ${item.description} \`ID: ${item.id}\``);
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent([`** ${cat.toUpperCase()}**`, ...lines].join('\n\n')));
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
       }
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Use `/shop buy <item_id>` to purchase'));
@@ -41,8 +41,8 @@ export default new Command({
     }
     if (sub === 'buy') {
       const itemId = (interaction.options.get('item')!.value as string).toLowerCase();
-      const qty    = (interaction.options.get('quantity')?.value as number) ?? 1;
-      const item   = config.shop.items.find((i) => i.id === itemId);
+      const qty = (interaction.options.get('quantity')?.value as number) ?? 1;
+      const item = config.shop.items.find((i) => i.id === itemId);
       if (!item) return interaction.editReply({ ...CB.errorResponse('Not Found', `No item with ID \`${itemId}\`.`) } as never);
       const totalCost = item.price * qty;
       const { wallet } = await UserManager.getBalance(interaction.user.id);
@@ -53,15 +53,15 @@ export default new Command({
       await inventoryDB.ensure(key, 0);
       await inventoryDB.add(key, qty);
       await UserManager.recordTransaction(interaction.user.id, 'shop_purchase', -totalCost, `${item.name} x${qty}`);
-      const eco     = await UserManager.getEconomy(interaction.user.id);
+      const eco = await UserManager.getEconomy(interaction.user.id);
       const current = await inventoryDB.get(key) as number;
       const c = new ContainerBuilder()
         .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-          new TextDisplayBuilder().setContent([`# ${E.WIN} Purchase Successful!`, `You bought **${item.emoji} ${item.name} x${qty}** for ${fmt.coins(totalCost)}!`].join('\n'))
+          new TextDisplayBuilder().setContent([`# Purchase Successful!`, `You bought **${item.name} x${qty}** for ${fmt.coins(totalCost)}!`].join('\n'))
         ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-          `${item.emoji} **${item.name}:** ${current}x in inventory`,
+          `**${item.name}:** ${current}x in inventory`,
           `${E.WALLET} **Remaining wallet:** ${fmt.coins(eco.wallet)}`,
         ].join('\n')));
       return interaction.editReply({ components: [c] });

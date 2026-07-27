@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicSuccess } from '../../utils/MusicUtil';
 
 export default new Command({
@@ -17,8 +17,8 @@ export default new Command({
     if (enabled && session?.leaveTimer) { clearTimeout(session.leaveTimer); session.leaveTimer = null; }
     return interaction.editReply(musicSuccess(
       enabled
-        ? '📻 **24/7 mode enabled.** I will stay in the voice channel until manually stopped.'
-        : '📻 **24/7 mode disabled.** I will leave after the queue ends or everyone leaves.'
+        ? ' **24/7 mode enabled.** I will stay in the voice channel until manually stopped.'
+        : ' **24/7 mode disabled.** I will leave after the queue ends or everyone leaves.'
     ) as never);
   },
 });

@@ -74,7 +74,15 @@ export function createSocialCommand(
               ].filter(Boolean).join('\n'))
             )
             .setThumbnailAccessory(new ThumbnailBuilder().setURL(target.displayAvatarURL({ size: 256 })))
-        )
+        );
+
+      // Components V2 never renders a plain `files` attachment inline — it
+      // has to be wired into a MediaGallery component to actually show up.
+      if (gifUrl) {
+        container.addMediaGalleryComponents(CB.gallery(gifUrl));
+      }
+
+      container
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
@@ -82,12 +90,7 @@ export function createSocialCommand(
           )
         );
 
-      const replyOpts: Record<string, unknown> = {
-        components: [container],
-      };
-      if (gifUrl) replyOpts.files = [{ attachment: gifUrl, name: `${action}.gif` }];
-
-      await interaction.editReply(replyOpts as Parameters<typeof interaction.editReply>[0]);
+      await interaction.editReply({ components: [container] } as Parameters<typeof interaction.editReply>[0]);
     },
   });
 }

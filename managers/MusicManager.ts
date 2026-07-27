@@ -10,7 +10,7 @@ import {
   type Client, type VoiceBasedChannel, type TextBasedChannel, type Message,
 } from 'discord.js';
 import musicConfig from '../config/music';
-import logger      from '../utils/Logger';
+import logger from '../utils/Logger';
 import { formatDuration } from '../utils/MusicUtil';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -59,28 +59,28 @@ interface LavendePlayer {
 
 export interface GuildSession {
   voiceChannel: VoiceBasedChannel;
-  textChannel:  TextBasedChannel;
-  loop:         'off' | 'track' | 'queue';
-  current:      LavendeTrack | null;
-  lastTrack:    LavendeTrack | null;
-  queueList:    LavendeTrack[];
-  npMessage:    Message | null;
-  leaveTimer:   ReturnType<typeof setTimeout> | null;
-  alwaysOn:     boolean;
-  autoplay:     boolean;
+  textChannel: TextBasedChannel;
+  loop: 'off' | 'track' | 'queue';
+  current: LavendeTrack | null;
+  lastTrack: LavendeTrack | null;
+  queueList: LavendeTrack[];
+  npMessage: Message | null;
+  leaveTimer: ReturnType<typeof setTimeout> | null;
+  alwaysOn: boolean;
+  autoplay: boolean;
 }
 
 export interface GuildSettings {
-  alwaysOn:        boolean;
-  autoplay:        boolean;
+  alwaysOn: boolean;
+  autoplay: boolean;
   lockedChannelId: string | null;
 }
 
 class MusicManager {
-  manager:      any;
-  sessions      = new Map<string, GuildSession>();
+  manager: any;
+  sessions = new Map<string, GuildSession>();
   guildSettings = new Map<string, GuildSettings>();
-  _client:      Client | null = null;
+  _client: Client | null = null;
 
   /* Bootstrap */
   init(client: Client): void {
@@ -146,10 +146,10 @@ class MusicManager {
     const player = (this.manager as {
       createPlayer: (opts: { guildId: string; voiceChannelId: string; textChannelId: string; volume: number }) => LavendePlayer;
     }).createPlayer({
-      guildId:        guild.id,
+      guildId: guild.id,
       voiceChannelId: voiceChannel.id,
-      textChannelId:  textChannel.id,
-      volume:         musicConfig.defaultVolume,
+      textChannelId: textChannel.id,
+      volume: musicConfig.defaultVolume,
     });
 
     const gs = this.getGuildSettings(guild.id);
@@ -165,9 +165,9 @@ class MusicManager {
 
   async destroyPlayer(guildId: string): Promise<void> {
     const session = this.sessions.get(guildId);
-    const player  = this.getPlayer(guildId);
+    const player = this.getPlayer(guildId);
     if (session?.leaveTimer) clearTimeout(session.leaveTimer);
-    if (session?.npMessage)  await session.npMessage.delete().catch(() => {});
+    if (session?.npMessage) await session.npMessage.delete().catch(() => {});
     this.sessions.delete(guildId);
     if (player) await player.destroy().catch(() => {});
   }
@@ -175,16 +175,15 @@ class MusicManager {
   /* Now Playing UI */
   buildNowPlayingPayload(guildId: string): { components: unknown[]; flags: number } {
     const session = this.getSession(guildId);
-    const player  = this.getPlayer(guildId);
-    if (!session?.current) return this._simpleComponents('🎵 Nothing is playing right now.');
+    const player = this.getPlayer(guildId);
+    if (!session?.current) return this._simpleComponents(' Nothing is playing right now.');
 
-    const track    = session.current;
-    const info     = track.info ?? {};
-    const isLive   = !!info.isStream;
-    const dur      = isLive ? '🔴 LIVE' : formatDuration(info.length ?? 0);
-    const loopIcon = session.loop === 'track' ? ' 🔂' : session.loop === 'queue' ? ' 🔁' : '';
-    const vol      = player?.volume ?? musicConfig.defaultVolume;
-    const volIcon  = vol > 100 ? '🔊' : vol > 50 ? '🔉' : '🔈';
+    const track = session.current;
+    const info = track.info ?? {};
+    const isLive = !!info.isStream;
+    const dur = isLive ? ' LIVE' : formatDuration(info.length ?? 0);
+    const loopIcon = session.loop === 'track' ? ' (Track Loop)' : session.loop === 'queue' ? ' (Queue Loop)' : '';
+    const vol = player?.volume ?? musicConfig.defaultVolume;
     const requester = track.requester;
 
     const lines = [
@@ -195,7 +194,7 @@ class MusicManager {
 
     const meta = [];
     if (!isLive) meta.push(`\`${dur}\``);
-    meta.push(`${volIcon} **${vol}%** • Queue: **${session.queueList.length}** track${session.queueList.length !== 1 ? 's' : ''}`);
+    meta.push(`**${vol}%** • Queue: **${session.queueList.length}** track${session.queueList.length !== 1 ? 's' : ''}`);
     meta.push(`-# Requested by ${requester?.displayName ?? requester?.username ?? 'Unknown'}`);
 
     const thumbnail = info.artworkUrl
@@ -211,14 +210,14 @@ class MusicManager {
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(meta.join('\n')));
 
-    const loopNext  = session.loop === 'off' ? 'track' : session.loop === 'track' ? 'queue' : 'off';
+    const loopNext = session.loop === 'off' ? 'track' : session.loop === 'track' ? 'queue' : 'off';
     const loopLabel = loopNext === 'off' ? 'Loop Off' : loopNext === 'track' ? 'Loop: Track' : 'Loop: Queue';
 
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`music_pause:${guildId}`).setLabel(player?.paused ? 'Resume' : 'Pause').setEmoji(player?.paused ? '▶️' : '⏸️').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`music_skip:${guildId}`).setLabel('Skip').setEmoji('⏭️').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`music_loop:${guildId}`).setLabel(loopLabel).setEmoji('🔁').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`music_stop:${guildId}`).setLabel('Stop').setEmoji('⏹️').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`music_pause:${guildId}`).setLabel(player?.paused ? 'Resume' : 'Pause').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`music_skip:${guildId}`).setLabel('Skip').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`music_loop:${guildId}`).setLabel(loopLabel).setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`music_stop:${guildId}`).setLabel('Stop').setStyle(ButtonStyle.Danger),
     );
 
     container.addActionRowComponents(controls);
@@ -266,13 +265,13 @@ class MusicManager {
   /* Player event wiring */
   _attachPlayerEvents(guildId: string, player: LavendePlayer): void {
     player.on('trackStart', async (_p: unknown, track: unknown) => {
-      const t       = track as LavendeTrack;
+      const t = track as LavendeTrack;
       const session = this.sessions.get(guildId);
       if (!session) return;
 
       if (session.leaveTimer) { clearTimeout(session.leaveTimer); session.leaveTimer = null; }
 
-      const head    = session.queueList[0];
+      const head = session.queueList[0];
       const matches = head && (
         head === t ||
         (head.info?.uri && head.info.uri === t.info?.uri) ||
@@ -297,7 +296,7 @@ class MusicManager {
       const session = this.sessions.get(guildId);
       if (!session) return;
       session.lastTrack = track as LavendeTrack;
-      session.current   = null;
+      session.current = null;
       this._revertPresence();
       if (reason === 'stopped' || reason === 'replaced') return;
       if (reason === 'loadFailed') {
@@ -317,7 +316,7 @@ class MusicManager {
       /* Autoplay */
       if (gs.autoplay && session.lastTrack) {
         try {
-          const query  = `${session.lastTrack.info?.author ?? ''} ${session.lastTrack.info?.title ?? ''}`.trim();
+          const query = `${session.lastTrack.info?.author ?? ''} ${session.lastTrack.info?.title ?? ''}`.trim();
           const result = await player.search(`ytsearch:${query}`, this._client?.user);
           const tracks = result?.tracks?.filter(t => t.info?.uri !== session.lastTrack?.info?.uri);
           if (tracks?.length) {
@@ -326,7 +325,7 @@ class MusicManager {
             session.queueList.push(pick);
             await player.play();
             (session.textChannel as any).send(
-              this._simpleComponents(`🎵 Autoplay: queuing **${pick.info?.title ?? 'Unknown'}**…`) as any
+              this._simpleComponents(` Autoplay: queuing **${pick.info?.title ?? 'Unknown'}**…`) as any
             ).catch(() => {});
             return;
           }
@@ -339,7 +338,7 @@ class MusicManager {
       if (gs.alwaysOn) {
         this._revertPresence();
         (session.textChannel as any).send(
-          this._simpleComponents('📻 Queue finished. 24/7 mode is **on** — staying in the voice channel.') as any
+          this._simpleComponents(' Queue finished. 24/7 mode is **on** — staying in the voice channel.') as any
         ).catch(() => {});
         return;
       }
@@ -350,7 +349,7 @@ class MusicManager {
         const tc = session.textChannel;
         await this.destroyPlayer(guildId);
         (tc as any).send(
-          this._simpleComponents('👋 Queue finished — left the voice channel after 30 seconds of silence.') as any
+          this._simpleComponents(' Queue finished — left the voice channel after 30 seconds of silence.') as any
         ).catch(() => {});
       }, musicConfig.autoLeaveMs);
     });

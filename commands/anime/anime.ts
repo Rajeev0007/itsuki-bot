@@ -3,9 +3,9 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }      from '../../structures/Command';
-import AnimeService     from '../../services/AnimeService';
-import * as CB          from '../../builders/ComponentBuilder';
+import { Command } from '../../structures/Command';
+import AnimeService from '../../services/AnimeService';
+import * as CB from '../../builders/ComponentBuilder';
 
 export default new Command({
   data: new SlashCommandBuilder()
@@ -14,11 +14,11 @@ export default new Command({
   category: 'anime', cooldown: 5000,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
-    const query   = interaction.options.get('query')!.value as string;
+    const query = interaction.options.get('query')!.value as string;
     const results = await AnimeService.searchAnime(query);
     if (!results?.length) return interaction.editReply({ ...CB.errorResponse('Not Found', `No anime found for **${query}**.`) } as never);
-    const anime   = results[0];
-    const genres  = anime.genres?.map((g) => g.name).join(', ') || 'Unknown';
+    const anime = results[0];
+    const genres = anime.genres?.map((g) => g.name).join(', ') || 'Unknown';
     const studios = anime.studios?.map((s) => s.name).join(', ') || 'Unknown';
     const synopsis = anime.synopsis ? (anime.synopsis.length > 500 ? anime.synopsis.slice(0, 497) + '…' : anime.synopsis) : 'No synopsis available.';
     const c = new ContainerBuilder()
@@ -27,14 +27,14 @@ export default new Command({
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(anime.images?.jpg?.image_url ?? 'https://i.imgur.com/AfFp7pu.png')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-        `⭐ ${anime.score ?? 'N/A'}/10  • ${anime.status ?? 'Unknown'}  • ${anime.episodes ?? '?'} eps`,
+        `${anime.score ?? 'N/A'}/10 • ${anime.status ?? 'Unknown'} • ${anime.episodes ?? '?'} eps`,
         `**Genres:** ${genres}`, `**Studio:** ${studios}`, `**Aired:** ${anime.aired?.string ?? 'Unknown'}`, '', `> ${synopsis}`,
       ].join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# MAL ID: ${anime.mal_id} • Rank: #${anime.rank ?? '?'}`));
     c.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setLabel('View on MAL').setStyle(ButtonStyle.Link).setURL(anime.url).setEmoji('🔗'),
+        new ButtonBuilder().setLabel('View on MAL').setStyle(ButtonStyle.Link).setURL(anime.url),
       ),
     );
     await interaction.editReply({ components: [c] });

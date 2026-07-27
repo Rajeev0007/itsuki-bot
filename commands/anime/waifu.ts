@@ -3,9 +3,9 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import AnimeService   from '../../services/AnimeService';
-import * as CB        from '../../builders/ComponentBuilder';
+import { Command } from '../../structures/Command';
+import AnimeService from '../../services/AnimeService';
+import * as CB from '../../builders/ComponentBuilder';
 
 const CATS = ['waifu','neko','shinobu','megumin','cuddle','cry','hug','kiss','pat','smug','bonk','blush','smile','wave','dance'];
 
@@ -23,12 +23,14 @@ export default new Command({
     const c = new ContainerBuilder()
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${category.charAt(0).toUpperCase() + category.slice(1)}`))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
+      .addMediaGalleryComponents(CB.gallery(imageUrl))
+      .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Requested by ${interaction.user.username}`));
     c.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`waifu_reroll:${interaction.user.id}:${category}`).setLabel('Reroll').setStyle(ButtonStyle.Secondary).setEmoji('🔄'),
+        new ButtonBuilder().setCustomId(`waifu_reroll:${interaction.user.id}:${category}`).setLabel('Reroll').setStyle(ButtonStyle.Secondary),
       ),
     );
-    await interaction.editReply({ components: [c], files: [imageUrl] });
+    await interaction.editReply({ components: [c] });
   },
 });

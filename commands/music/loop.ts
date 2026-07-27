@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicCheck, musicError, musicSuccess } from '../../utils/MusicUtil';
 
 export default new Command({
@@ -18,7 +18,7 @@ export default new Command({
     const mode = interaction.options.get('mode')!.value as 'off' | 'track' | 'queue';
     session!.loop = mode;
     await (player as { setRepeatMode: (m: string) => Promise<void> }).setRepeatMode(mode);
-    const labels = { off: '🔕 Loop **off**.', track: '🔂 Looping current **track**.', queue: '🔁 Looping the entire **queue**.' };
+    const labels = { off: ' Loop **off**.', track: ' Looping current **track**.', queue: ' Looping the entire **queue**.' };
     return interaction.editReply(musicSuccess(labels[mode]) as never);
   },
 });

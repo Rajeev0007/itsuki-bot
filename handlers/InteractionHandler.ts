@@ -5,36 +5,36 @@
  * do not need to include the flag manually in every editReply / update call.
  */
 
-import fs   from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { type Client, type Interaction } from 'discord.js';
-import logger          from '../utils/Logger';
+import logger from '../utils/Logger';
 import { patchReplies } from '../utils/V2Flag';
 
 interface InteractionModule {
   customId: string;
-  execute:  (interaction: Interaction, client: Client) => Promise<void>;
+  execute: (interaction: Interaction, client: Client) => Promise<void>;
 }
 
 export default class InteractionHandler {
-  client:  Client;
+  client: Client;
   buttons: Map<string, InteractionModule>;
-  modals:  Map<string, InteractionModule>;
-  menus:   Map<string, InteractionModule>;
+  modals: Map<string, InteractionModule>;
+  menus: Map<string, InteractionModule>;
 
   constructor(client: Client) {
-    this.client  = client;
+    this.client = client;
     this.buttons = new Map();
-    this.modals  = new Map();
-    this.menus   = new Map();
+    this.modals = new Map();
+    this.menus = new Map();
   }
 
   load(): void {
-    this._loadDir('buttons',      this.buttons);
-    this._loadDir('modals',       this.modals);
-    this._loadDir('stringMenus',  this.menus);
-    this._loadDir('userMenus',    this.menus);
-    this._loadDir('roleMenus',    this.menus);
+    this._loadDir('buttons', this.buttons);
+    this._loadDir('modals', this.modals);
+    this._loadDir('stringMenus', this.menus);
+    this._loadDir('userMenus', this.menus);
+    this._loadDir('roleMenus', this.menus);
     this._loadDir('channelMenus', this.menus);
   }
 
@@ -62,7 +62,7 @@ export default class InteractionHandler {
     // before this method is called — no need to patch again here.
 
     let map: Map<string, InteractionModule> | null = null;
-    if ((interaction as { isButton?: () => boolean }).isButton?.())                map = this.buttons;
+    if ((interaction as { isButton?: () => boolean }).isButton?.()) map = this.buttons;
     else if ((interaction as { isModalSubmit?: () => boolean }).isModalSubmit?.()) map = this.modals;
     else if ((interaction as { isAnySelectMenu?: () => boolean }).isAnySelectMenu?.()) map = this.menus;
     if (!map) return;
@@ -79,13 +79,19 @@ export default class InteractionHandler {
     }
 
     if (!handler) {
-      logger.debug(`[InteractionHandler] No handler for "${rawId}" — deferring update.`);
-      const i = interaction as unknown as Record<string, unknown>;
-      try {
-        if (!i.replied && !i.deferred) {
-          await (i.deferUpdate as () => Promise<void>)();
-        }
-      } catch { /* interaction may have expired */ }
+      // No globally-registered handler for this customId. This is expected
+      // for buttons/menus owned by a command's own local
+      // msg.createMessageComponentCollector() (help, blackjack, crash,
+      // mines, prestige, waifu reroll, etc.) — those are handled by a
+      // separate listener the collector attaches directly, not by this
+      // router. We must NOT deferUpdate() here: this router's listener is
+      // registered at boot (before any collector exists) so it always runs
+      // first, and calling deferUpdate() would acknowledge the interaction
+      // out from under the collector before its own handler gets to run,
+      // breaking the update/edit it was about to perform. Just leave it —
+      // if truly orphaned (e.g. bot restarted mid-collector), Discord shows
+      // its own "interaction failed" after a few seconds, which is correct.
+      logger.debug(`[InteractionHandler] No global handler for "${rawId}" — leaving for a local collector, if any.`);
       return;
     }
 
@@ -94,7 +100,7 @@ export default class InteractionHandler {
     } catch (err) {
       logger.error(`[InteractionHandler] Error handling "${rawId}":`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');
-      const msg = { content: '❌ An error occurred processing this interaction.', ephemeral: true };
+      const msg = { content: ' An error occurred processing this interaction.', ephemeral: true };
       const i = interaction as unknown as Record<string, unknown>;
       if (i.replied || i.deferred) {
         await (i.followUp as (o: unknown) => Promise<void>)(msg).catch(() => {});

@@ -3,11 +3,11 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import { MEDALS }     from '../../utils/Constants';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import { MEDALS } from '../../utils/Constants';
 
 export default new Command({
   data: new SlashCommandBuilder().setName('richest').setDescription('View the wealthiest users by net worth.'),
@@ -23,7 +23,7 @@ export default new Command({
       return `${MEDALS[i] ?? `**${i + 1}.**`} **${name}** — ${fmt.coins(entry.value)}`;
     }));
     const c = new ContainerBuilder()
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent('# 🏆 Richest Players'))
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Richest Players'))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))

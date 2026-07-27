@@ -4,11 +4,11 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 const GRID = 5, TOTAL = GRID * GRID;
@@ -28,14 +28,14 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { wallet } = await UserManager.getBalance(interaction.user.id);
-    const bet   = fmt.parseAmount(interaction.options.get('bet')!.value as string, wallet);
+    const bet = fmt.parseAmount(interaction.options.get('bet')!.value as string, wallet);
     const mines = interaction.options.get('mines')!.value as number;
     if (!bet || bet < config.gambling.minBet || bet > config.gambling.maxBet)
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
     await UserManager.addWallet(interaction.user.id, -bet);
-    const pos     = Array.from({ length: TOTAL }, (_, i) => i);
+    const pos = Array.from({ length: TOTAL }, (_, i) => i);
     const mineSet = new Set(pos.sort(() => Math.random() - 0.5).slice(0, mines));
     const revealed = new Set<number>();
     let alive = true, cashoutMult = 1;
@@ -47,10 +47,10 @@ export default new Command({
         for (let col = 0; col < GRID; col++) {
           const idx = row * GRID + col;
           const isRev = revealed.has(idx), isMine = mineSet.has(idx);
-          let style = ButtonStyle.Secondary, emoji = '🔲', disabled = isRev || !alive;
-          if (isRev) { emoji = isMine ? '💣' : '💎'; style = isMine ? ButtonStyle.Danger : ButtonStyle.Success; disabled = true; }
-          else if (revealAll) { emoji = isMine ? '💣' : '🔲'; style = isMine ? ButtonStyle.Danger : ButtonStyle.Secondary; disabled = true; }
-          r.addComponents(new ButtonBuilder().setCustomId(`mines_tile:${interaction.user.id}:${idx}`).setEmoji(emoji).setStyle(style).setDisabled(disabled));
+          let style = ButtonStyle.Secondary, label = '\u200b', disabled = isRev || !alive;
+          if (isRev) { label = isMine ? 'X' : '$'; style = isMine ? ButtonStyle.Danger : ButtonStyle.Success; disabled = true; }
+          else if (revealAll) { label = isMine ? 'X' : '$'; style = isMine ? ButtonStyle.Danger : ButtonStyle.Secondary; disabled = true; }
+          r.addComponents(new ButtonBuilder().setCustomId(`mines_tile:${interaction.user.id}:${idx}`).setLabel(label).setStyle(style).setDisabled(disabled));
         }
         rows.push(r);
       }
@@ -59,7 +59,7 @@ export default new Command({
 
     const buildInfo = () => new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(alive ? `# 💣 Mines — ${mines} bombs hidden` : '# 💥 BOOM! You hit a mine!')
+        new TextDisplayBuilder().setContent(alive ? `# Mines — ${mines} bombs hidden` : '# BOOM! You hit a mine!')
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -68,7 +68,7 @@ export default new Command({
       ].join('\n')));
 
     const cashoutRow = () => new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`mines_cashout:${interaction.user.id}`).setLabel(`Cash Out (${cashoutMult.toFixed(2)}x)`).setStyle(ButtonStyle.Success).setEmoji('💰'),
+      new ButtonBuilder().setCustomId(`mines_cashout:${interaction.user.id}`).setLabel(`Cash Out (${cashoutMult.toFixed(2)}x)`).setStyle(ButtonStyle.Success),
     );
 
     const assembleGame = (info: ContainerBuilder, rows: ReturnType<typeof buildRows>, cashout?: ReturnType<typeof cashoutRow>) => {
@@ -91,7 +91,7 @@ export default new Command({
         await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
         await UserManager.incrementStat(interaction.user.id, 'gamesWon');
         const eco = await UserManager.getEconomy(interaction.user.id);
-        const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([`# 💰 Cashed Out!`, `You cashed out **${cashoutMult.toFixed(2)}x** and won **${fmt.coins(payout - bet)}**!`, `${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`].join('\n')));
+        const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([`# Cashed Out!`, `You cashed out **${cashoutMult.toFixed(2)}x** and won **${fmt.coins(payout - bet)}**!`, `${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`].join('\n')));
         await i.update({ components: [assembleGame(c, buildRows(true))] });
         return;
       }
@@ -100,7 +100,7 @@ export default new Command({
         alive = false; revealed.add(idx);
         await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
         const eco = await UserManager.getEconomy(interaction.user.id);
-        const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([`# 💥 BOOM! You hit a mine!`, `Lost **${fmt.coins(bet)}**!`, `${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`].join('\n')));
+        const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([`# BOOM! You hit a mine!`, `Lost **${fmt.coins(bet)}**!`, `${E.WALLET} **Wallet:** ${fmt.coins(eco.wallet)}`].join('\n')));
         await i.update({ components: [assembleGame(c, buildRows(true))] });
         return;
       }

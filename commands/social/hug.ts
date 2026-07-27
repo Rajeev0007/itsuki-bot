@@ -1,2 +1,2 @@
 import { createSocialCommand } from '../../utils/SocialCommandFactory';
-export default createSocialCommand('hug', '🤗', 'hugged', 'social');
+export default createSocialCommand('hug', '', 'hugged', 'social');

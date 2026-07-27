@@ -1,8 +1,8 @@
 import { type VoiceState, type Client } from 'discord.js';
-import { Event }     from '../structures/Event';
-import logger        from '../utils/Logger';
-import music         from '../managers/MusicManager';
-import musicConfig   from '../config/music';
+import { Event } from '../structures/Event';
+import logger from '../utils/Logger';
+import music from '../managers/MusicManager';
+import musicConfig from '../config/music';
 
 export default new Event({
   name: 'voiceStateUpdate',
@@ -29,8 +29,8 @@ export default new Event({
     const botChannel = session.voiceChannel;
     if (!botChannel) return;
 
-    const members  = botChannel.members.filter((m) => !m.user.bot);
-    const gs       = music.getGuildSettings(guildId);
+    const members = botChannel.members.filter((m) => !m.user.bot);
+    const gs = music.getGuildSettings(guildId);
 
     if (members.size === 0) {
       if (!gs.alwaysOn && !session.leaveTimer) {
@@ -39,7 +39,7 @@ export default new Event({
           const tc = session.textChannel;
           await music.destroyPlayer(guildId).catch(() => {});
           (tc as any).send(
-            music._simpleComponents('👋 Everyone left — disconnected from voice.')
+            music._simpleComponents(' Everyone left — disconnected from voice.')
           ).catch(() => {});
         }, musicConfig.autoLeaveMs);
       }

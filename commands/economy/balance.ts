@@ -4,11 +4,11 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import fmt            from '../../utils/Formatter';
-import PB             from '../../utils/ProgressBar';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import fmt from '../../utils/Formatter';
+import PB from '../../utils/ProgressBar';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 export default new Command({
@@ -21,10 +21,10 @@ export default new Command({
     const target = interaction.options.get('user')?.user ?? interaction.user;
     const isSelf = target.id === interaction.user.id;
     const [eco, user] = await Promise.all([UserManager.getEconomy(target.id), UserManager.getUser(target.id, interaction.guild?.id)]);
-    const bankPct  = eco.bank / config.economy.bankLimit;
-    const bankBar  = PB.bar(eco.bank, config.economy.bankLimit, 10);
+    const bankPct = eco.bank / config.economy.bankLimit;
+    const bankBar = PB.bar(eco.bank, config.economy.bankLimit, 10);
     const netWorth = eco.wallet + eco.bank;
-    const rank     = await UserManager.getRank(target.id);
+    const rank = await UserManager.getRank(target.id);
     const prestigePct = (user.prestige ?? 0) * config.economy.prestigeBonus * 100;
 
     const container = new ContainerBuilder()
@@ -54,9 +54,9 @@ export default new Command({
 
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`balance_deposit:${target.id}`).setLabel('Deposit').setStyle(ButtonStyle.Primary).setEmoji('📥'),
-        new ButtonBuilder().setCustomId(`balance_withdraw:${target.id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary).setEmoji('📤'),
-        new ButtonBuilder().setCustomId(`balance_refresh:${target.id}`).setLabel('Refresh').setStyle(ButtonStyle.Secondary).setEmoji('🔄'),
+        new ButtonBuilder().setCustomId(`balance_deposit:${target.id}`).setLabel('Deposit').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`balance_withdraw:${target.id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`balance_refresh:${target.id}`).setLabel('Refresh').setStyle(ButtonStyle.Secondary),
       ),
     );
     await interaction.editReply({ components: [container] });

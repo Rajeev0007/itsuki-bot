@@ -25,7 +25,7 @@ export default new Command({
     .addSubcommand((s) => s.setName('view').setDescription('View your pet'))
     .addSubcommand((s) => s.setName('adopt').setDescription('Adopt a new pet')
       .addStringOption((o) => o.setName('type').setDescription('Pet type').setRequired(true)
-        .addChoices(...PET_TYPES.map((p) => ({ name: `${p.emoji} ${p.name}`, value: p.id }))))
+        .addChoices(...PET_TYPES.map((p) => ({ name: `${p.name}`, value: p.id }))))
       .addStringOption((o) => o.setName('name').setDescription('Name your pet').setRequired(true).setMaxLength(20)))
     .addSubcommand((s) => s.setName('feed').setDescription('Feed your pet'))
     .addSubcommand((s) => s.setName('play').setDescription('Play with your pet'))
@@ -47,10 +47,10 @@ export default new Command({
       const { wallet } = await UserManager.getBalance(interaction.user.id);
       if (wallet < cost) return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Adopting costs ${fmt.coins(cost)}.`) } as never);
       await UserManager.addWallet(interaction.user.id, -cost);
-      const pet: PetData = { type: typeId, name, emoji: type.emoji, hunger: 100, happiness: 100, health: 100, xp: 0, level: 1, adoptedAt: Date.now(), lastFed: Date.now(), lastPlayed: Date.now() };
+      const pet: PetData = { type: typeId, name, emoji: '', hunger: 100, happiness: 100, health: 100, xp: 0, level: 1, adoptedAt: Date.now(), lastFed: Date.now(), lastPlayed: Date.now() };
       await petsDB.set(`${interaction.user.id}.pet`, pet);
       const c = new ContainerBuilder().addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent([`# You adopted ${type.emoji} **${name}**!`, 'Remember to feed and play daily!'].join('\n'))
+        new TextDisplayBuilder().setContent([`# You adopted **${name}**!`, 'Remember to feed and play daily!'].join('\n'))
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(av)));
       return interaction.editReply({ components: [c] });
     }
@@ -72,7 +72,7 @@ export default new Command({
       ];
       const c = new ContainerBuilder()
         .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
-          new TextDisplayBuilder().setContent([`# ${pet.emoji} ${pet.name}`, `*Level ${pet.level} ${PET_TYPES.find((p) => p.id === pet.type)?.name ?? pet.type}*`].join('\n'))
+          new TextDisplayBuilder().setContent([`# ${pet.name}`, `*Level ${pet.level} ${PET_TYPES.find((p) => p.id === pet.type)?.name ?? pet.type}*`].join('\n'))
         ).setThumbnailAccessory(new ThumbnailBuilder().setURL(av)))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('```\n' + bars.join('\n') + '\n```'))
@@ -84,14 +84,14 @@ export default new Command({
       if (Date.now() - pet.lastFed < 3_600_000) return interaction.editReply({ ...CB.errorResponse('Not Hungry', `${pet.name} isn't hungry yet.`) } as never);
       pet.hunger  = Math.min(100, pet.hunger + 40); pet.health = Math.min(100, pet.health + 5); pet.lastFed = Date.now();
       await petsDB.set(`${interaction.user.id}.pet`, pet);
-      return interaction.editReply({ ...CB.successResponse('Fed!', `You fed **${pet.emoji} ${pet.name}**! Hunger: ${pet.hunger}%`) } as never);
+      return interaction.editReply({ ...CB.successResponse('Fed!', `You fed **${pet.name}**! Hunger: ${pet.hunger}%`) } as never);
     }
     if (sub === 'play') {
       if (Date.now() - pet.lastPlayed < 3_600_000) return interaction.editReply({ ...CB.errorResponse('Tired', `${pet.name} needs rest.`) } as never);
       pet.happiness = Math.min(100, pet.happiness + 30); pet.xp += 10; pet.lastPlayed = Date.now();
       if (pet.xp >= pet.level * 100) { pet.xp = 0; pet.level++; }
       await petsDB.set(`${interaction.user.id}.pet`, pet);
-      return interaction.editReply({ ...CB.successResponse('Played!', `You played with **${pet.emoji} ${pet.name}**! Happiness: ${pet.happiness}%`) } as never);
+      return interaction.editReply({ ...CB.successResponse('Played!', `You played with **${pet.name}**! Happiness: ${pet.happiness}%`) } as never);
     }
     if (sub === 'train') {
       const lastTrain = (await petsDB.get(`${interaction.user.id}.lastTrain`) ?? 0) as number;
@@ -99,7 +99,7 @@ export default new Command({
       pet.xp += 25; if (pet.xp >= pet.level * 100) { pet.xp = 0; pet.level++; }
       await petsDB.set(`${interaction.user.id}.pet`, pet); await petsDB.set(`${interaction.user.id}.lastTrain`, Date.now());
       const reward = fmt.randomInt(50, 200); await UserManager.addWallet(interaction.user.id, reward);
-      return interaction.editReply({ ...CB.successResponse('Trained!', `**${pet.emoji} ${pet.name}** trained and earned you ${fmt.coins(reward)}! Level: ${pet.level}`) } as never);
+      return interaction.editReply({ ...CB.successResponse('Trained!', `**${pet.name}** trained and earned you ${fmt.coins(reward)}! Level: ${pet.level}`) } as never);
     }
   },
 });

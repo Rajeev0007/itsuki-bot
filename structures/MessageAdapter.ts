@@ -7,10 +7,10 @@
  * supports them on regular channel messages when IS_COMPONENTS_V2 flag is set.
  *
  * Implements the ChatInputCommandInteraction surface actually used by commands:
- *   user / guild / channel / client / replied / deferred
- *   options  → getString · getInteger · getNumber · getBoolean · getUser
- *              get · getSubcommand · getSubcommandGroup
- *   deferReply · editReply · reply · followUp
+ * user / guild / channel / client / replied / deferred
+ * options → getString · getInteger · getNumber · getBoolean · getUser
+ * get · getSubcommand · getSubcommandGroup
+ * deferReply · editReply · reply · followUp
  */
 
 import {
@@ -25,22 +25,22 @@ import { type SlashCommandData } from './Command';
 import logger from '../utils/Logger';
 
 // ── IS_COMPONENTS_V2 flag value (1 << 15 = 32768) ───────────────────────────
-const IS_V2      = Number((MessageFlags as Record<string, unknown>).IsComponentsV2 ?? 32768);
-const EPHEMERAL  = Number((MessageFlags as Record<string, unknown>).Ephemeral      ?? 64);
+const IS_V2 = Number((MessageFlags as Record<string, unknown>).IsComponentsV2 ?? 32768);
+const EPHEMERAL = Number((MessageFlags as Record<string, unknown>).Ephemeral ?? 64);
 
 // ── ApplicationCommandOptionType constants ───────────────────────────────────
 const OT = {
-  SUB_COMMAND:       1,
+  SUB_COMMAND: 1,
   SUB_COMMAND_GROUP: 2,
-  STRING:            3,
-  INTEGER:           4,
-  BOOLEAN:           5,
-  USER:              6,
-  NUMBER:            10,
+  STRING: 3,
+  INTEGER: 4,
+  BOOLEAN: 5,
+  USER: 6,
+  NUMBER: 10,
 } as const;
 
 interface OptionEntry {
-  type:  number;
+  type: number;
   value: unknown;
   user?: User;
 }
@@ -52,12 +52,12 @@ interface OptionEntry {
  */
 export class PrefixOptions {
   private readonly _map = new Map<string, OptionEntry>();
-  private _subcmd:    string | null = null;
+  private _subcmd: string | null = null;
   private _subcmdGrp: string | null = null;
 
   constructor(data: SlashCommandData, args: string[], message: Message) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json    = (data as any).toJSON?.() as { options?: unknown[] } | undefined;
+    const json = (data as any).toJSON?.() as { options?: unknown[] } | undefined;
     const options = (json?.options ?? []) as Array<{ type: number; name: string; options?: unknown[] }>;
 
     // ── Subcommand group ─────────────────────────────────────────────────────
@@ -104,15 +104,15 @@ export class PrefixOptions {
 
   private _mapOpts(
     options: Array<{ type: number; name: string }>,
-    args:    string[],
+    args: string[],
     message: Message,
   ): void {
-    const mentions  = [...message.mentions.users.values()];
-    let mentionIdx  = 0;
-    let argIdx      = 0;
+    const mentions = [...message.mentions.users.values()];
+    let mentionIdx = 0;
+    let argIdx = 0;
 
     for (let i = 0; i < options.length; i++) {
-      const opt    = options[i];
+      const opt = options[i];
       const isLast = i === options.length - 1;
 
       if (opt.type === OT.USER) {
@@ -194,11 +194,11 @@ export class PrefixOptions {
   }
 
   // Stubs — not resolvable from a plain message
-  getMember(_n: string)     { return null; }
-  getChannel(_n: string)    { return null; }
-  getRole(_n: string)       { return null; }
+  getMember(_n: string) { return null; }
+  getChannel(_n: string) { return null; }
+  getRole(_n: string) { return null; }
   getAttachment(_n: string) { return null; }
-  getFocused()              { return ''; }
+  getFocused() { return ''; }
 
   getSubcommand(required = true): string {
     if (!this._subcmd) {
@@ -217,20 +217,20 @@ export class PrefixOptions {
 // ── MessageCommandAdapter ─────────────────────────────────────────────────────
 /**
  * Drop-in replacement for ChatInputCommandInteraction when running a command
- * triggered by a prefix message.  V2 component payloads are forwarded as-is —
+ * triggered by a prefix message. V2 component payloads are forwarded as-is —
  * Discord renders them on regular messages when IS_COMPONENTS_V2 is set.
  */
 export class MessageCommandAdapter {
-  readonly user:    User;
-  readonly guild:   Guild | null;
+  readonly user: User;
+  readonly guild: Guild | null;
   readonly channel: TextBasedChannel | null;
-  readonly client:  Client;
+  readonly client: Client;
   readonly options: PrefixOptions;
 
   /** Real GuildMember — exposes .voice, .permissions, .roles etc. for music / permission checks */
   get member() { return this._msg.member; }
 
-  replied  = false;
+  replied = false;
   deferred = false;
 
   private _loadingMsg: Message | null = null;
@@ -251,10 +251,10 @@ export class MessageCommandAdapter {
     data: SlashCommandData,
     args: string[],
   ) {
-    this.user    = _msg.author;
-    this.guild   = _msg.guild;
+    this.user = _msg.author;
+    this.guild = _msg.guild;
     this.channel = _msg.channel as TextBasedChannel;
-    this.client  = _msg.client;
+    this.client = _msg.client;
     this.options = new PrefixOptions(data, args, _msg);
   }
 
@@ -262,8 +262,8 @@ export class MessageCommandAdapter {
 
   async deferReply(_opts?: unknown): Promise<void> {
     try {
-      this._loadingMsg = await this._msg.reply({ content: '⏳' });
-      this.deferred    = true;
+      this._loadingMsg = await this._msg.reply({ content: '' });
+      this.deferred = true;
     } catch (err) {
       logger.debug('[Prefix] deferReply failed:', (err as Error).message);
     }
@@ -326,6 +326,14 @@ export class MessageCommandAdapter {
 
     const existing = typeof p.flags === 'number' ? p.flags : 0;
     p.flags = (existing | IS_V2) & ~EPHEMERAL;
+
+    // Message#edit() is a partial patch — any field left out of the payload
+    // stays as-is. deferReply() sends '' as the content of the loading
+    // message, so if the real reply doesn't explicitly set `content`, that
+    // '' sticks around forever next to the real components. Explicitly
+    // clear it (Discord treats `null` as "remove this field").
+    if (!('content' in p)) p.content = null;
+
     return p;
   }
 }

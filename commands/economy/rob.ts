@@ -3,12 +3,12 @@ import {
   TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
+import { Command } from '../../structures/Command';
 import EconomyManager from '../../managers/EconomyManager';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -22,7 +22,7 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const target = interaction.options.get('target')!.user!;
     if (target.id === interaction.user.id) return interaction.editReply({ ...CB.errorResponse('Invalid Target', 'You cannot rob yourself.') } as never);
-    if (target.bot)                         return interaction.editReply({ ...CB.errorResponse('Invalid Target', 'Bots carry no coins!') } as never);
+    if (target.bot) return interaction.editReply({ ...CB.errorResponse('Invalid Target', 'Bots carry no coins!') } as never);
     const result = await EconomyManager.rob(interaction.user.id, target.id);
     const av = interaction.user.displayAvatarURL({ size: 256 });
     if (!result.success && 'remaining' in result && result.remaining) {
@@ -33,7 +33,7 @@ export default new Command({
     }
     if (!result.success && 'reason' in result && result.reason === 'too_poor')
       return interaction.editReply({ ...CB.errorResponse('Broke Target', `${target.username} doesn't have enough coins (min ${fmt.coins(config.economy.robMinWallet)}).`) } as never);
-    const frames = [`🔍 Locating **${target.username}**…`, '🤫 Sneaking up…', '💨 Making your move…'];
+    const frames = ['Locating **' + target.username + '**…', 'Sneaking up…', 'Making your move…'];
     for (const f of frames) {
       await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Robbery in Progress\n> ${f}`))] });
       await sleep(550);

@@ -4,11 +4,11 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ThumbnailBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }    from '../../structures/Command';
-import UserManager    from '../../managers/UserManager';
-import * as CB        from '../../builders/ComponentBuilder';
-import fmt            from '../../utils/Formatter';
-import config         from '../../config/config';
+import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 export default new Command({
@@ -19,7 +19,7 @@ export default new Command({
     const user = await UserManager.getUser(interaction.user.id, interaction.guild?.id);
     if (user.level < config.economy.maxLevel)
       return interaction.editReply({ ...CB.errorResponse('Not Ready', `You need **Level ${config.economy.maxLevel}** to prestige. Currently Level **${user.level}**.`) } as never);
-    const next     = (user.prestige ?? 0) + 1;
+    const next = (user.prestige ?? 0) + 1;
     const bonusPct = (next * config.economy.prestigeBonus * 100).toFixed(0);
     const container = new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
@@ -32,8 +32,8 @@ export default new Command({
       ].join('\n')));
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`prestige_confirm:${interaction.user.id}`).setLabel(`Prestige ${next}`).setStyle(ButtonStyle.Danger).setEmoji('🔄'),
-        new ButtonBuilder().setCustomId('prestige_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary).setEmoji('✖️'),
+        new ButtonBuilder().setCustomId(`prestige_confirm:${interaction.user.id}`).setLabel(`Prestige ${next}`).setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('prestige_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary),
       ),
     );
     const msg = await interaction.editReply({ components: [container] });

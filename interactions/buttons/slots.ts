@@ -9,10 +9,10 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   type ButtonInteraction,
 } from 'discord.js';
-import UserManager  from '../../managers/UserManager';
-import * as CB      from '../../builders/ComponentBuilder';
-import fmt          from '../../utils/Formatter';
-import config       from '../../config/config';
+import UserManager from '../../managers/UserManager';
+import * as CB from '../../builders/ComponentBuilder';
+import fmt from '../../utils/Formatter';
+import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 import { getStore } from '../../database/JsonStore';
 
@@ -26,7 +26,7 @@ function spin(): string[] {
 
 function calcPayout(reels: string[], bet: number): number {
   const key = reels.join('');
-  const p   = config.gambling.slots.payouts;
+  const p = config.gambling.slots.payouts;
   if (p[key]) return Math.floor(bet * p[key]);
   if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2])
     return Math.floor(bet * config.gambling.slots.twoMatch);
@@ -36,12 +36,12 @@ function calcPayout(reels: string[], bet: number): number {
 export const customId = 'slots_spin:*';
 
 export async function execute(interaction: ButtonInteraction): Promise<void> {
-  const parts  = interaction.customId.split(':');
+  const parts = interaction.customId.split(':');
   const userId = parts[1];
-  const bet    = parseInt(parts[2], 10);
+  const bet = parseInt(parts[2], 10);
 
   if (userId !== interaction.user.id) {
-    await interaction.reply({ content: '❌ This button is not for you.', ephemeral: true });
+    await interaction.reply({ content: ' This button is not for you.', ephemeral: true });
     return;
   }
 
@@ -64,7 +64,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${status}\n\`\`\`\n ${r1} ${r2} ${r3} \n\`\`\``))],
   });
 
-  await interaction.editReply(frame('🎰', '🎰', '🎰', 'Spinning…'));
+  await interaction.editReply(frame('', '', '', 'Spinning…'));
   await sleep(700);
   await interaction.editReply(frame(reels[0], symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)], 'Spinning…'));
   await sleep(700);
@@ -72,8 +72,8 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
   await sleep(700);
 
   const payout = calcPayout(reels, bet);
-  const won    = payout > 0;
-  const net    = payout - bet;
+  const won = payout > 0;
+  const net = payout - bet;
 
   await UserManager.addWallet(interaction.user.id, net);
   await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
@@ -81,9 +81,9 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
   await UserManager.recordTransaction(interaction.user.id, won ? 'gambling_win' : 'gambling_loss', net, 'Slots');
   await gamblingDB.ensure(interaction.user.id, { slots: { wins: 0, losses: 0 } });
   if (won) await gamblingDB.add(`${interaction.user.id}.slots.wins`, 1);
-  else     await gamblingDB.add(`${interaction.user.id}.slots.losses`, 1);
+  else await gamblingDB.add(`${interaction.user.id}.slots.losses`, 1);
 
-  const eco   = await UserManager.getEconomy(interaction.user.id);
+  const eco = await UserManager.getEconomy(interaction.user.id);
   const title = won ? `# ${E.WIN} Winner!` : `# ${E.LOSE} No Match`;
   const c = new ContainerBuilder()
     .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
@@ -97,7 +97,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     ].join('\n')));
   c.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`slots_spin:${interaction.user.id}:${bet}`).setLabel('Spin Again').setStyle(ButtonStyle.Primary).setEmoji('🎰'),
+      new ButtonBuilder().setCustomId(`slots_spin:${interaction.user.id}:${bet}`).setLabel('Spin Again').setStyle(ButtonStyle.Primary),
     ),
   );
   await interaction.editReply({ components: [c] });

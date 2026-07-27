@@ -12,6 +12,9 @@ import config             from './config/config';
 import logger             from './utils/Logger';
 import { autoDeployCommands } from './utils/AutoDeploy';
 import musicManager       from './managers/MusicManager';
+import NoPrefixManager    from './managers/NoPrefixManager';
+import BlacklistManager   from './managers/BlacklistManager';
+import MaintenanceManager from './managers/MaintenanceManager';
 import CommandHandler     from './handlers/CommandHandler';
 import EventHandler       from './handlers/EventHandler';
 import InteractionHandler from './handlers/InteractionHandler';
@@ -73,6 +76,10 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
+  await NoPrefixManager.ready();
+  await BlacklistManager.ready();
+  await MaintenanceManager.ready();
+
   // Smart global command sync — only hits Discord API when commands changed
   const commandsDir = path.join(__dirname, 'commands');
   await autoDeployCommands(config.token, config.clientId, commandsDir);

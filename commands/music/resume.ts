@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicCheck, musicError, musicSuccess } from '../../utils/MusicUtil';
 
 export default new Command({
@@ -13,6 +13,6 @@ export default new Command({
     const p = player as { paused: boolean; resume: () => Promise<void> };
     if (!p.paused) return interaction.editReply(musicError('Playback is not paused.') as never);
     await p.resume();
-    return interaction.editReply(musicSuccess('▶️ Resumed playback.') as never);
+    return interaction.editReply(musicSuccess('▶ Resumed playback.') as never);
   },
 });

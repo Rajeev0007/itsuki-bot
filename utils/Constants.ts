@@ -3,38 +3,40 @@
  * @description Shared constants, emoji maps, and static lookup tables.
  */
 
+const COIN = '<:itsukiCoin:1527226118598426675>';
+
 export const EMOJI = {
-  WALLET: '👛', BANK: '🏦', COINS: '🪙', GEM: '💎',
-  ARROW_UP: '⬆️', ARROW_DOWN: '⬇️', TRANSFER: '↔️',
-  DEPOSIT: '📥', WITHDRAW: '📤', DAILY: '📅', WEEKLY: '🗓️',
-  WORK: '💼', CRIME: '🔫', ROB: '🥷', BEG: '🙏',
-  SEARCH: '🔍', FISH: '🎣', MINE: '⛏️', FARM: '🌾',
-  CHOP: '🪓', HUNT: '🏹',
+  WALLET: '', BANK: '', COINS: COIN, GEM: '',
+  ARROW_UP: '', ARROW_DOWN: '', TRANSFER: '',
+  DEPOSIT: '', WITHDRAW: '', DAILY: '', WEEKLY: '',
+  WORK: '', CRIME: '', ROB: '', BEG: '',
+  SEARCH: '', FISH: '', MINE: '', FARM: '',
+  CHOP: '', HUNT: '',
 
-  LEVEL: '⭐', XP: '✨', RANK: '🏆', BADGE: '🎖️',
-  TITLE: '📛', PRESTIGE: '🔄', REP: '👍',
+  LEVEL: '', XP: '', RANK: '', BADGE: '',
+  TITLE: '', PRESTIGE: '', REP: '',
 
-  SLOTS: '🎰', DICE: '🎲', CARDS: '🃏', COINFLIP: '🪙',
-  ROULETTE: '🎡', WIN: '🎉', LOSE: '💸', JACKPOT: '💰',
+  SLOTS: '', DICE: '', CARDS: '', COINFLIP: COIN,
+  ROULETTE: '', WIN: '', LOSE: '', JACKPOT: COIN,
 
-  INVENTORY: '🎒', SHOP: '🏪', BUY: '🛒', KEY: '🔑',
-  CRATE: '📦', BOOSTER: '⚡', FOOD: '🍔', WEAPON: '⚔️',
-  TOOL: '🔧',
+  INVENTORY: '', SHOP: '', BUY: '', KEY: '',
+  CRATE: '', BOOSTER: '', FOOD: '', WEAPON: '',
+  TOOL: '',
 
-  SUCCESS: '✅', ERROR: '❌', WARNING: '⚠️', INFO: 'ℹ️',
-  LOADING: '⏳', CLOCK: '🕐', COOLDOWN: '⏱️', LOCK: '🔒',
-  CHECK: '✔️', STAR: '⭐', FIRE: '🔥', SHIELD: '🛡️',
-  CROWN: '👑', SPARKLES: '✨', LIGHTNING: '⚡', CHART: '📊',
-  TROPHY: '🏆',
+  SUCCESS: '', ERROR: '', WARNING: '', INFO: '',
+  LOADING: '', CLOCK: '', COOLDOWN: '', LOCK: '',
+  CHECK: '', STAR: '', FIRE: '', SHIELD: '',
+  CROWN: '', SPARKLES: '', LIGHTNING: '', CHART: '',
+  TROPHY: '',
 
-  PAW: '🐾', PET: '🐶', EGG: '🥚', HEART: '❤️',
-  HUG: '🤗', KISS: '💋', PAT: '👋', SLAP: '👋',
+  PAW: '', PET: '', EGG: '', HEART: '',
+  HUG: '', KISS: '', PAT: '', SLAP: '',
 
-  ANIME: '🎌', CARD: '🃏', WAIFU: '🎀', COLLECTION: '📚',
-  HOME: '🏠', BACK: '⬅️', NEXT: '➡️', CLOSE: '✖️', REFRESH: '🔄',
+  ANIME: '', CARD: '', WAIFU: '', COLLECTION: '',
+  HOME: '', BACK: '', NEXT: '', CLOSE: '', REFRESH: '',
 } as const;
 
-export const SUITS       = ['♠️', '♥️', '♦️', '♣️'] as const;
+export const SUITS       = ['♠', '♥', '♦', '♣'] as const;
 export const CARD_VALUES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'] as const;
 
 export const RARITY_COLORS: Record<string, number> = {
@@ -42,7 +44,7 @@ export const RARITY_COLORS: Record<string, number> = {
   Legendary: 0xFFD700, Mythic: 0xFF6B6B, Limited: 0xFF69B4,
 };
 
-export const MEDALS = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'] as const;
+export const MEDALS = ['#1','#2','#3','#4','#5','#6','#7','#8','#9','#10'] as const;
 
 export const COLLECTOR_TIMEOUT  = 60_000;
 export const PAGINATION_TIMEOUT = 120_000;

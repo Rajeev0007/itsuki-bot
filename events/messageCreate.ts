@@ -1,28 +1,30 @@
 /**
  * @file messageCreate.ts
  * @description Handles incoming messages:
- *   - Awards passive XP (fire-and-forget — never blocks command dispatch)
- *   - Routes prefix commands to the same execute() functions as slash commands
- *   - NoPrefix: users on the premium list can run commands without the prefix
+ * - Awards passive XP (fire-and-forget — never blocks command dispatch)
+ * - Routes prefix commands to the same execute() functions as slash commands
+ * - NoPrefix: users on the premium list can run commands without the prefix
  */
 
 import { type Message, type Client, Collection, MessageFlags } from 'discord.js';
-import { Event }              from '../structures/Event';
-import { Command }            from '../structures/Command';
+import { Event } from '../structures/Event';
+import { Command } from '../structures/Command';
 import { MessageCommandAdapter } from '../structures/MessageAdapter';
-import UserManager            from '../managers/UserManager';
-import NoPrefixManager        from '../managers/NoPrefixManager';
-import cooldowns              from '../managers/CooldownManager';
-import config                 from '../config/config';
-import logger                 from '../utils/Logger';
-import fmt                    from '../utils/Formatter';
-import * as CB                from '../builders/ComponentBuilder';
+import UserManager from '../managers/UserManager';
+import NoPrefixManager from '../managers/NoPrefixManager';
+import BlacklistManager from '../managers/BlacklistManager';
+import MaintenanceManager from '../managers/MaintenanceManager';
+import cooldowns from '../managers/CooldownManager';
+import config from '../config/config';
+import logger from '../utils/Logger';
+import fmt from '../utils/Formatter';
+import * as CB from '../builders/ComponentBuilder';
 
-const IS_V2    = Number((MessageFlags as Record<string, unknown>).IsComponentsV2 ?? 32768);
+const IS_V2 = Number((MessageFlags as Record<string, unknown>).IsComponentsV2 ?? 32768);
 const V2_FLAGS = IS_V2;
 
 // Per-user XP cooldown (in-memory, 60 s)
-const _xpCooldown    = new Map<string, number>();
+const _xpCooldown = new Map<string, number>();
 const XP_COOLDOWN_MS = 60_000;
 
 async function replyError(message: Message, title: string, desc: string): Promise<void> {
@@ -32,7 +34,7 @@ async function replyError(message: Message, title: string, desc: string): Promis
       flags: V2_FLAGS,
     } as never);
   } catch {
-    await message.reply(`❌ **${title}:** ${desc}`).catch(() => {});
+    await message.reply(` **${title}:** ${desc}`).catch(() => {});
   }
 }
 
@@ -43,10 +45,13 @@ export default new Event({
     commands?: Collection<string, Command>;
   }) {
     if (message.author.bot) return;
-    if (!message.guild)     return;
+    if (!message.guild) return;
 
     const userId = message.author.id;
     const prefix = config.prefix;
+
+    // Blacklisted users get nothing at all — no XP, no mention reply, no commands.
+    if (BlacklistManager.has(userId)) return;
 
     // ── Passive XP (fire-and-forget — never delays command processing) ───────
     const lastXp = _xpCooldown.get(userId) ?? 0;
@@ -56,7 +61,7 @@ export default new Event({
         .then(({ leveledUp, newLevel }) => {
           if (leveledUp) {
             (message.channel as { send: (m: string) => Promise<unknown> })
-              .send(`🎉 ${message.author} leveled up to **Level ${newLevel}**!`)
+              .send(` ${message.author} leveled up to **Level ${newLevel}**!`)
               .catch(() => {});
           }
         })
@@ -66,12 +71,12 @@ export default new Event({
     // ── Mention shortcut ──────────────────────────────────────────────────────
     if (message.mentions.has(client.user!)) {
       await message.reply(
-        `👋 Hi! Use \`${prefix}help\` or \`/help\` to see all commands.`
+        ` Hi! Use \`${prefix}help\` or \`/help\` to see all commands.`
       ).catch(() => {});
     }
 
     // ── Determine whether this message should be treated as a command ─────────
-    const hasPrefix   = message.content.startsWith(prefix);
+    const hasPrefix = message.content.startsWith(prefix);
     const hasNoPrefix = NoPrefixManager.has(userId); // sync O(1) — no await
 
     if (!hasPrefix && !hasNoPrefix) return;
@@ -80,9 +85,9 @@ export default new Event({
     const raw = (hasPrefix ? message.content.slice(prefix.length) : message.content).trim();
     if (!raw) return;
 
-    const parts       = raw.split(/\s+/);
+    const parts = raw.split(/\s+/);
     const commandName = parts[0].toLowerCase();
-    const args        = parts.slice(1);
+    const args = parts.slice(1);
 
     if (!client.commands) return;
 
@@ -101,6 +106,14 @@ export default new Event({
 
     if (command.ownerOnly && !config.owners.includes(userId))
       return void replyError(message, 'Owner Only', 'This command is restricted to bot owners.');
+
+    if (MaintenanceManager.isEnabled() && !config.owners.includes(userId)) {
+      return void replyError(
+        message,
+        'Maintenance Mode',
+        MaintenanceManager.reason() ?? 'The bot is currently undergoing maintenance. Please try again later.',
+      );
+    }
 
     if (command.maintenance)
       return void replyError(message, 'Maintenance', 'This command is temporarily disabled.');
@@ -131,7 +144,7 @@ export default new Event({
           } as never);
         } catch {
           await message.reply(
-            `⏱️ You can use \`${prefix}${command.name}\` again in **${Math.ceil(remaining / 1000)}s**.`
+            ` You can use \`${prefix}${command.name}\` again in **${Math.ceil(remaining / 1000)}s**.`
           ).catch(() => {});
         }
         return;
@@ -155,7 +168,7 @@ export default new Event({
           flags: V2_FLAGS,
         });
       } catch {
-        await message.reply(`❌ Something went wrong: ${errMsg}`).catch(() => {});
+        await message.reply(` Something went wrong: ${errMsg}`).catch(() => {});
       }
     }
   },

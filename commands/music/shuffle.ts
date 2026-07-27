@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicCheck, musicError, musicSuccess } from '../../utils/MusicUtil';
 
 export default new Command({
@@ -17,6 +17,6 @@ export default new Command({
       const j = Math.floor(Math.random() * (i + 1));
       [session!.queueList[i], session!.queueList[j]] = [session!.queueList[j], session!.queueList[i]];
     }
-    return interaction.editReply(musicSuccess(`🔀 Shuffled **${session!.queueList.length}** tracks in the queue.`) as never);
+    return interaction.editReply(musicSuccess(` Shuffled **${session!.queueList.length}** tracks in the queue.`) as never);
   },
 });

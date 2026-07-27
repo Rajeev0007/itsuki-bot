@@ -6,9 +6,9 @@
  * just type the command name directly (e.g. "balance" instead of "!balance").
  *
  * Subcommands:
- *   /noprefix add <user>    — grants NoPrefix to a user
- *   /noprefix remove <user> — revokes NoPrefix from a user
- *   /noprefix list          — shows all users with NoPrefix
+ * /noprefix add <user> — grants NoPrefix to a user
+ * /noprefix remove <user> — revokes NoPrefix from a user
+ * /noprefix list — shows all users with NoPrefix
  */
 
 import {
@@ -17,9 +17,9 @@ import {
   SeparatorBuilder, SeparatorSpacingSize,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { Command }      from '../../structures/Command';
-import NoPrefixManager  from '../../managers/NoPrefixManager';
-import config           from '../../config/config';
+import { Command } from '../../structures/Command';
+import NoPrefixManager from '../../managers/NoPrefixManager';
+import config from '../../config/config';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
 
@@ -28,7 +28,7 @@ function ok(title: string, body: string) {
     flags: IS_V2,
     components: [
       new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ✅ ${title}\n${body}`)),
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${title}\n${body}`)),
     ],
   };
 }
@@ -38,7 +38,7 @@ function err(title: string, body: string) {
     flags: IS_V2,
     components: [
       new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ❌ ${title}\n${body}`)),
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${title}\n${body}`)),
     ],
   };
 }
@@ -66,10 +66,10 @@ export default new Command({
         .setDescription('Show all users currently on the NoPrefix list.')
     ),
 
-  category:    'utility',
-  ownerOnly:   true,
-  aliases:     ['np', 'nopfx'],
-  cooldown:    1000,
+  category: 'utility',
+  ownerOnly: true,
+  aliases: ['np', 'nopfx'],
+  cooldown: 1000,
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
@@ -132,7 +132,7 @@ export default new Command({
             new ContainerBuilder()
               .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(
-                  `# 👑 NoPrefix List\nNo users have NoPrefix yet.\n\n` +
+                  `# NoPrefix List\nNo users have NoPrefix yet.\n\n` +
                   `-# Use \`/noprefix add @user\` to grant it.`
                 )
               ),
@@ -152,7 +152,7 @@ export default new Command({
         components: [
           new ContainerBuilder()
             .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent(`# 👑 NoPrefix List`)
+              new TextDisplayBuilder().setContent(`# NoPrefix List`)
             )
             .addSeparatorComponents(
               new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true)

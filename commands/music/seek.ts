@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../structures/Command';
-import music       from '../../managers/MusicManager';
+import music from '../../managers/MusicManager';
 import { musicCheck, musicError, musicSuccess, formatDuration } from '../../utils/MusicUtil';
 
 function parseTime(input: string): number | null {
@@ -26,11 +26,11 @@ export default new Command({
     if (!info.isSeekable || info.isStream)
       return interaction.editReply(musicError('This track is not seekable (live stream or DRM-protected).') as never);
     const input = interaction.options.get('position')!.value as string;
-    const ms    = parseTime(input);
+    const ms = parseTime(input);
     if (ms === null) return interaction.editReply(musicError('Invalid time format. Use `MM:SS`, `H:MM:SS`, or plain seconds.') as never);
     if (ms < 0 || ms > (info.length ?? 0))
       return interaction.editReply(musicError(`Position out of range. Track length: \`${formatDuration(info.length ?? 0)}\``) as never);
     await (player as { seek: (ms: number) => Promise<void> }).seek(ms);
-    return interaction.editReply(musicSuccess(`⏩ Seeked to \`${formatDuration(ms)}\`.`) as never);
+    return interaction.editReply(musicSuccess(` Seeked to \`${formatDuration(ms)}\`.`) as never);
   },
 });
