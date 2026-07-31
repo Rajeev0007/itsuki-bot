@@ -6,7 +6,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865f2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-≥22-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥20-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
 
 </div>
@@ -34,7 +34,7 @@
 
 | Tool | Version |
 |---|---|
-| **Node.js** | ≥ 22.0.0 |
+| **Node.js** | ≥ 20.18.0 (22 LTS recommended) |
 | **npm** | ≥ 8 |
 
 > **Linux/Ubuntu** — the `canvas` package needs native libraries:
@@ -194,6 +194,38 @@ pm2 save && pm2 startup
 1. Import this repo into Replit
 2. Add Secrets: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`
 3. The `Itsuki Bot` workflow runs `npm start` automatically
+
+---
+
+## Troubleshooting
+
+**`npm error code ERESOLVE` mentioning `opusscript`**
+`prism-media` accepts `opusscript@^0.0.8` only. The manifest pins that exact
+range, so a plain `npm install` resolves. If a future dependency bump
+reintroduces a peer conflict, `npm install --legacy-peer-deps` unblocks it, but
+prefer correcting the version — `--legacy-peer-deps` accepts a resolution npm
+knows is wrong.
+
+**`TypeError: Cannot read properties of undefined (reading 'fileExists')`**
+Something is starting the bot with **ts-node**. This project does not use
+ts-node; a global ts-node cannot resolve the project's TypeScript and fails
+this way. Set the start command to `npm start` (which runs `node start.js` and
+loads `tsx`).
+
+**`Cannot find module 'tsx/cjs'`**
+Dependencies are not installed. Run `npm install`.
+
+**`npm ci` fails with a lockfile error**
+There is no committed `package-lock.json` — run `npm install` once to generate
+one, then `npm ci` works on later deploys.
+
+**`Cannot play audio as no valid encryption package is installed`**
+`libsodium-wrappers` did not install. Re-run `npm install`; it is a pure-JS
+package and needs no build tools.
+
+**`canvas` fails to build**
+Install the native libraries listed under [Requirements](#requirements), then
+reinstall. `canvas` powers the leaderboard and stats images.
 
 ---
 
