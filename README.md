@@ -217,6 +217,49 @@ one would be silently discarded. Writes now touch a single document, and
 
 ---
 
+## Installation contexts (server vs account)
+
+Itsuki can be added two ways, and they are not the same thing:
+
+| | What the user does | What works |
+|---|---|---|
+| **Server install** | Admin invites the bot to a server | Everything, including music, moderation and anything reading server data |
+| **User install** | "Add to my apps" on the bot's profile | Commands that need no server state — economy, gambling, cards, profile, social, utility — usable in DMs, group DMs and even in servers the bot is not in |
+
+Which commands appear where is derived automatically from each command's own
+flags, so nothing needs annotating:
+
+| Command flag | `contexts` | `integration_types` |
+|---|---|---|
+| `guildOnly: true` | `[Guild]` | `[GuildInstall]` |
+| `ownerOnly: true` | `[Guild, BotDM]` | `[GuildInstall]` |
+| has `setDefaultMemberPermissions` | `[Guild, BotDM]` | `[GuildInstall]` |
+| anything else | `[Guild, BotDM, PrivateChannel]` | `[GuildInstall, UserInstall]` |
+
+`PrivateChannel` is only ever added alongside user install, because Discord
+rejects the whole registration if that context appears on a command that is not
+user-installable.
+
+### Enabling it
+
+One code-side switch and one portal-side switch, and **both** are required:
+
+1. `USER_INSTALL=true` in `.env` (the default).
+2. Developer Portal → your app → **Installation** → **Installation Contexts** →
+   tick **User Install**.
+
+If step 2 is missing, Discord refuses the registration. Rather than failing to
+start, the bot retries with server install only and logs what to change — so
+check the boot log if account installs show no commands.
+
+### Commands not showing up after a change
+
+Guild-scoped commands (`npm run deploy:guild`) can **never** be user installs —
+only global commands can. Use `npm run deploy` for that, and
+`npm run deploy:clear-guild` to remove stale guild duplicates.
+
+---
+
 ## Hosting
 
 ### Any x86-64 VPS (Ubuntu / Debian)
@@ -335,6 +378,17 @@ package and needs no build tools.
 rather than starting with no database, because a half-configured bot writes data
 somewhere nobody looks. For Atlas, check that your IP is allow-listed and that
 the password is URL-encoded.
+
+**Commands missing for someone who used "Add to my apps"**
+Check the boot log for `[AutoDeploy] Discord rejected the user-install
+registration`. That means **User Install** is not ticked in the Developer Portal
+(see [Installation contexts](#installation-contexts-server-vs-account)). Global
+commands can also take up to an hour to propagate after a change.
+
+**A user-install command replies "Bot Not In This Server"**
+Working as intended. The command needs server data — channels, roles, voice
+state — and an account install cannot see any of that. Invite the bot to the
+server and it works immediately.
 
 **`canvas` fails to build**
 Install the native libraries listed under [Requirements](#requirements), then

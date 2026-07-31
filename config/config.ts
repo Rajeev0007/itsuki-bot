@@ -257,6 +257,17 @@ const config = {
   /* Owners */
   owners: (process.env.BOT_OWNERS ?? '').split(',').map((id) => id.trim()).filter(Boolean),
 
+  /**
+   * Register commands for account-level installs ("Add to my apps") as well as
+   * server installs.
+   *
+   * This must ALSO be enabled in the Discord Developer Portal under
+   * Installation → Installation Contexts → User Install. If it is not, Discord
+   * rejects the registration and AutoDeploy retries without it, logging what to
+   * change. Set USER_INSTALL=false to opt out entirely.
+   */
+  userInstall: process.env.USER_INSTALL !== 'false',
+
   /* Database */
   mongo: {
     /**

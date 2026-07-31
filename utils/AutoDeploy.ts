@@ -25,6 +25,8 @@ interface RawCommand {
   nsfw?: boolean;
   /** Where the command may be used: 0 = Guild, 1 = Bot DM, 2 = Private channel. */
   contexts?: number[] | null;
+  /** How the app may be installed: 0 = Guild install, 1 = User install. */
+  integration_types?: number[] | null;
 }
 
 // ── Load local commands from commands/ ────────────────────────────────────────
@@ -65,12 +67,12 @@ function loadLocal(commandsDir: string): Map<string, RawCommand> {
 // made every command look "changed" on every boot, so the bot re-registered all
 // of its global commands each time it started, burning through the daily
 // command-creation rate limit for no reason.
-function normalize(cmd: unknown): string {
+export function normalize(cmd: unknown): string {
   const STRIP = new Set([
     // Discord bookkeeping
     'id', 'application_id', 'version', 'guild_id',
     // Echo-only fields we never send, so comparing them is a permanent diff
-    'integration_types', 'default_permission', 'handler',
+    'default_permission', 'handler',
     // Superseded by `contexts`; Discord stops reporting it once contexts are set
     'dm_permission',
     // Localization maps — echoed back as null when unset
@@ -118,6 +120,13 @@ function normalize(cmd: unknown): string {
     // would be silently skipped and never registered. Sorted because the array
     // order carries no meaning.
     contexts: [...(base.contexts ?? [])].map(Number).sort((a, b) => a - b),
+    // MUST be compared for the same reason as `contexts`, and this one bit us:
+    // it used to sit in STRIP, so turning on user installs changed nothing in
+    // the signature, the diff came back empty, AutoDeploy logged
+    // "up-to-date — skipping registration", and the change was never sent to
+    // Discord. A user with the app installed to their account saw no commands
+    // and there was nothing in the log to suggest why.
+    integration_types: [...(base.integration_types ?? [])].map(Number).sort((a, b) => a - b),
   };
 
   return JSON.stringify(clean(normalised));
@@ -176,14 +185,57 @@ export async function autoDeployCommands(
   if (changed.length) logger.info(`[AutoDeploy] Updated: ${changed.join(', ')}`);
   if (removed.length) logger.info(`[AutoDeploy] Removed: ${removed.join(', ')}`);
 
+  const bodies = [...local.values()];
+  const userInstallable = bodies.filter(
+    (c) => (c as RawCommand).integration_types?.includes(1),
+  ).length;
+
   try {
-    logger.info(`[AutoDeploy] Syncing ${local.size} commands globally…`);
-    const result = (await rest.put(
-      Routes.applicationCommands(clientId),
-      { body: [...local.values()] },
-    )) as unknown[];
+    logger.info(`[AutoDeploy] Syncing ${local.size} commands globally (${userInstallable} available as user installs)…`);
+    let result: unknown[];
+    try {
+      result = (await rest.put(
+        Routes.applicationCommands(clientId),
+        { body: bodies },
+      )) as unknown[];
+    } catch (err) {
+      if (!isUserInstallRejected(err)) throw err;
+      // The app-level "User Install" switch lives in the Developer Portal and
+      // cannot be set from code. Rather than refusing to start, fall back to
+      // server-install only and say exactly what to change.
+      logger.warn('[AutoDeploy] Discord rejected the user-install registration.');
+      logger.warn('[AutoDeploy] Enable it at: Developer Portal → your app → Installation → Installation Contexts → tick "User Install".');
+      logger.warn('[AutoDeploy] Registering with server install only for now; re-run once it is enabled.');
+      result = (await rest.put(
+        Routes.applicationCommands(clientId),
+        { body: bodies.map(withoutUserInstall) },
+      )) as unknown[];
+    }
     logger.info(`[AutoDeploy] ${result.length} global commands registered.`);
   } catch (err) {
     logger.error('[AutoDeploy] Registration failed:', (err as Error).message);
   }
+}
+
+/**
+ * Downgrades a command body to server-install only.
+ *
+ * `PrivateChannel` (2) has to go with it: Discord only accepts that context on a
+ * user-installable command, so leaving it would fail the retry for a second,
+ * more confusing reason.
+ */
+export function withoutUserInstall(cmd: unknown): unknown {
+  const body = { ...(cmd as Record<string, unknown>) };
+  body.integration_types = [0];
+  if (Array.isArray(body.contexts)) {
+    body.contexts = (body.contexts as unknown[]).map(Number).filter((n) => n !== 2);
+  }
+  return body;
+}
+
+/** Whether a registration failure was about user installs specifically. */
+export function isUserInstallRejected(err: unknown): boolean {
+  const detail = JSON.stringify((err as { rawError?: unknown })?.rawError ?? '');
+  const message = (err as Error)?.message ?? '';
+  return /integration_types|user[_ ]?install|cannot be installed/i.test(`${detail} ${message}`);
 }

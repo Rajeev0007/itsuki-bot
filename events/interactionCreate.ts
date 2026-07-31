@@ -125,10 +125,25 @@ export default new Event({
     // Backstop only: guild-only commands declare `contexts: [Guild]`, so Discord
     // shouldn't even offer them in DMs. This still catches stale registrations.
     if (command.guildOnly && !guild) {
+      // Two very different situations both land here, and telling them apart
+      // matters. When the app is installed to someone's ACCOUNT they can run its
+      // commands inside a server the bot is not a member of: `guildId` is present
+      // but `guild` is null and cannot be fetched, so a guild-dependent command
+      // genuinely cannot run — yet "this needs a server" is a baffling thing to
+      // read while standing in one.
+      const inServerWithoutBot = Boolean(cmdInteraction.guildId);
+
       await cmdInteraction.reply({
         ...CB.errorResponse(
-          'Server Only',
-          `\`/${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
+          inServerWithoutBot ? 'Bot Not In This Server' : 'Server Only',
+          inServerWithoutBot
+            ? [
+              `\`/${command.name}\` reads this server's channels, roles or voice state, so the bot has to actually be a member here.`,
+              '',
+              'You have Itsuki added to your account, which is why the command appears — but account installs cannot see server data.',
+              'Ask an admin to invite the bot, and it will work immediately.',
+            ].join('\n')
+            : `\`/${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
         ),
         flags: V2_EPHEMERAL,
       } as never).catch(() => {});
