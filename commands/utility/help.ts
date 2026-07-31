@@ -33,6 +33,8 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
   pets:        { label: 'Pets',        desc: 'Hatch, feed, and level up virtual pets',             color: config.colors.success, commands: ['pet'] },
   profile:     { label: 'Profile',     desc: 'Your stats, XP, levels, and achievements',           color: config.colors.primary, commands: ['profile'] },
   leaderboard: { label: 'Leaderboard', desc: 'Global rankings and top players',                    color: config.colors.primary, commands: ['leaderboard'] },
+  cards:       { label: 'Anime Cards', desc: 'Roll, collect, battle and auction anime characters',  color: config.colors.anime,   commands: ['roll','collection','card','upgrade','battle','auction'] },
+  stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
   moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog'] },
   utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand'] },
 };
@@ -58,6 +60,8 @@ const SERVER_ONLY = new Set([
   // Moderation acts on servers, members and channels.
   'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'purge',
   'slowmode', 'lock', 'modlog',
+  // Activity is tracked per server.
+  'userstats',
 ]);
 
 /** Lists a category's server-only commands, for the DM notice. */

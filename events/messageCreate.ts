@@ -11,6 +11,7 @@ import { Event } from '../structures/Event';
 import { Command } from '../structures/Command';
 import { MessageCommandAdapter } from '../structures/MessageAdapter';
 import UserManager from '../managers/UserManager';
+import StatsManager from '../managers/StatsManager';
 import NoPrefixManager from '../managers/NoPrefixManager';
 import BlacklistManager from '../managers/BlacklistManager';
 import MaintenanceManager from '../managers/MaintenanceManager';
@@ -60,6 +61,9 @@ export default new Event({
     const lastXp = _xpCooldown.get(userId) ?? 0;
     if (Date.now() - lastXp >= XP_COOLDOWN_MS) {
       _xpCooldown.set(userId, Date.now());
+      // Buffered in memory and flushed periodically — see StatsManager.
+      if (message.guild) StatsManager.recordMessage(message.guild.id, userId);
+
       void UserManager.addXp(userId, fmt.randomInt(2, 8))
         .then(({ leveledUp, newLevel }) => {
           if (leveledUp) {
@@ -176,6 +180,7 @@ export default new Event({
 
     try {
       logger.command(command.name, message.author.tag, message.guild?.name ?? 'DM');
+      if (message.guild) StatsManager.recordCommand(message.guild.id, userId);
       await command.execute(adapter as never, client);
       // Same safety net as the slash router: never leave a deferred prefix
       // command sitting on its "Working…" placeholder with no result.

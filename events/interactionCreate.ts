@@ -12,6 +12,7 @@ import { Command } from '../structures/Command';
 import config from '../config/config';
 import logger from '../utils/Logger';
 import cooldowns from '../managers/CooldownManager';
+import StatsManager from '../managers/StatsManager';
 import BlacklistManager from '../managers/BlacklistManager';
 import MaintenanceManager from '../managers/MaintenanceManager';
 import * as CB from '../builders/ComponentBuilder';
@@ -163,6 +164,7 @@ export default new Event({
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
       logger.command(command.name, cmdInteraction.user.tag, guild?.name ?? 'DM');
+      if (guild) StatsManager.recordCommand(guild.id, userId);
       await command.execute(cmdInteraction, client);
       // Safety net for a whole class of bug: a command that defers and then
       // returns down a code path that never sends anything (an unmatched
