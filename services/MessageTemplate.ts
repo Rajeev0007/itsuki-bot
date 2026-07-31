@@ -167,57 +167,235 @@ export function applyPlaceholders(text: string | null | undefined, ctx: Placehol
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
+/**
+ * Hard Discord ceilings, in one place.
+ *
+ * These matter because exceeding any of them rejects the ENTIRE message with
+ * `50035 Invalid Form Body` — there is no partial send and no warning. Since
+ * the builder lets users add up to 25 fields, buttons, a gallery and a footer,
+ * a fully-populated template really can cross both V2 limits, so the renderer
+ * has to budget rather than assume.
+ *
+ * Components V2: 40 components per message counting nested ones, and 4000
+ * characters combined across every component that holds text.
+ *   https://discord.com/developers/docs/components/reference
+ */
+export const LIMITS = {
+  v2: {
+    components: 40,
+    text: 4000,
+    gallery: 10,
+    /** A Section may hold at most 3 children (text displays + accessory). */
+    sectionChildren: 3,
+  },
+  embed: {
+    /** Combined title + description + fields + footer + author. */
+    total: 6000,
+    title: 256,
+    description: 4096,
+    fields: 25,
+    fieldName: 256,
+    fieldValue: 1024,
+    footer: 2048,
+    author: 256,
+  },
+  buttons: 5,
+  buttonLabel: 80,
+  content: 2000,
+};
+
 const DEFAULT_COLOR = 0x5865F2;
+
+/**
+ * Characters held back for the "N fields hidden" note.
+ *
+ * The longest such note is around 55 characters, so 80 leaves margin. It must
+ * be reserved before the text-heavy fields are allocated, or the explanation
+ * for the overflow becomes part of the overflow.
+ */
+const NOTE_RESERVE = 80;
 
 function isImageUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^https?:\/\//i.test(url);
 }
 
-/** Buttons are identical in both styles; only link buttons are allowed here so
- *  a template can't create a component with no handler behind it. */
-function buildButtonRow(
-  buttons: TemplateButton[] | undefined, ctx: PlaceholderContext,
-): ActionRowBuilder<ButtonBuilder> | null {
-  const valid = (buttons ?? [])
-    .map((b) => ({ ...b, url: applyPlaceholders(b.url, ctx) }))
-    .filter((b) => b.label?.trim() && /^https?:\/\//i.test(b.url))
-    .slice(0, 5);
-  if (!valid.length) return null;
+const hasPlaceholder = (s: string | null | undefined): boolean => /\{[a-z0-9_.]+\}/i.test(s ?? '');
 
+/**
+ * `lenient` is used when measuring an unrendered template: a URL that is still
+ * a placeholder will become a real URL at send time, so it must be counted as
+ * present or the component estimate comes out too low.
+ */
+function urlish(url: string | null | undefined, lenient: boolean): boolean {
+  return isImageUrl(url) || (lenient && hasPlaceholder(url));
+}
+
+/** Hands out characters from a shared budget, highest-priority caller first. */
+function budgeter(total: number) {
+  let left = total;
+  return {
+    take(text: string | null | undefined, max: number): string {
+      const s = text ?? '';
+      if (!s) return '';
+      const cut = s.slice(0, Math.max(0, Math.min(max, left)));
+      left -= cut.length;
+      return cut;
+    },
+    reserve(n: number): void { left = Math.max(0, left - n); },
+    get left(): number { return left; },
+    get used(): number { return total - left; },
+  };
+}
+
+/**
+ * Joins consecutive strings while they fit in `maxLen`.
+ *
+ * Used to collapse many one-field-per-component text displays into a few, which
+ * cuts the component count while keeping every character of content — only the
+ * vertical spacing changes.
+ */
+function mergeChunks(items: string[], maxLen: number): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    const last = out.length ? out[out.length - 1] : undefined;
+    if (last !== undefined && last.length + 2 + item.length <= maxLen) {
+      out[out.length - 1] = `${last}\n\n${item}`;
+    } else {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+interface ResolvedButton { label: string; url: string; emoji: string | null }
+
+/**
+ * Only link buttons are allowed, so a template cannot produce a component with
+ * no handler behind it.
+ */
+function resolveButtons(
+  buttons: TemplateButton[] | undefined,
+  resolve: (v: string | null | undefined) => string,
+  lenient = false,
+): ResolvedButton[] {
+  return (buttons ?? [])
+    .map((b) => ({
+      label: resolve(b.label).slice(0, LIMITS.buttonLabel),
+      url: resolve(b.url),
+      emoji: b.emoji?.trim() || null,
+    }))
+    .filter((b) => b.label.trim() && urlish(b.url, lenient))
+    .slice(0, LIMITS.buttons);
+}
+
+function buildButtonRow(buttons: ResolvedButton[]): ActionRowBuilder<ButtonBuilder> | null {
+  if (!buttons.length) return null;
   const row = new ActionRowBuilder<ButtonBuilder>();
-  for (const b of valid) {
-    const button = new ButtonBuilder()
-      .setLabel(applyPlaceholders(b.label, ctx).slice(0, 80))
-      .setStyle(ButtonStyle.Link)
-      .setURL(b.url);
-    if (b.emoji?.trim()) {
-      // An invalid emoji rejects the whole message, so it's applied defensively.
-      try { button.setEmoji(b.emoji.trim()); } catch { /* skip the emoji */ }
+  for (const b of buttons) {
+    const button = new ButtonBuilder().setLabel(b.label).setStyle(ButtonStyle.Link).setURL(b.url);
+    if (b.emoji) {
+      // An invalid emoji rejects the whole message, so it is applied defensively.
+      try { button.setEmoji(b.emoji); } catch { /* skip the emoji */ }
     }
     row.addComponents(button);
   }
   return row;
 }
 
+// ── Embed plan ───────────────────────────────────────────────────────────────
+
+interface EmbedPlan {
+  title: string; description: string; authorName: string; footerText: string;
+  fields: Array<{ name: string; value: string; inline: boolean }>;
+  buttons: ResolvedButton[];
+  hiddenFields: number;
+  text: number;
+}
+
+/**
+ * Allocates an embed's 6000-character budget.
+ *
+ * Each individual field already has its own cap, but the per-field caps sum far
+ * past 6000 (256 + 4096 + 25x(256+1024) + 2048 …), so the total has to be
+ * budgeted too. Body copy wins over decoration: title, author and description
+ * are served before the footer, and fields last.
+ */
+function planEmbed(
+  tpl: MessageTemplate,
+  resolve: (v: string | null | undefined) => string,
+  lenient = false,
+): EmbedPlan {
+  const b = budgeter(LIMITS.embed.total);
+
+  const title = b.take(resolve(tpl.title), LIMITS.embed.title);
+  const authorName = tpl.author?.name ? b.take(resolve(tpl.author.name), LIMITS.embed.author) : '';
+  const description = b.take(resolve(tpl.description), LIMITS.embed.description);
+
+  const candidates = (tpl.fields ?? [])
+    .slice(0, LIMITS.embed.fields)
+    .map((f) => ({
+      name: resolve(f.name).slice(0, LIMITS.embed.fieldName),
+      value: resolve(f.value).slice(0, LIMITS.embed.fieldValue),
+      inline: Boolean(f.inline),
+    }))
+    .filter((f) => f.name && f.value);
+
+  // The "N hidden" note is appended to the footer later, so its room has to be
+  // claimed BEFORE the footer and fields spend what is left — otherwise the
+  // note itself pushes the embed over 6000.
+  const footerRaw = tpl.footer?.text ? resolve(tpl.footer.text) : '';
+  const fieldsTotal = candidates.reduce((n, f) => n + f.name.length + f.value.length, 0);
+  if (candidates.length
+    && fieldsTotal + Math.min(footerRaw.length, LIMITS.embed.footer) > b.left) {
+    b.reserve(NOTE_RESERVE);
+  }
+
+  let footerText = b.take(footerRaw, LIMITS.embed.footer);
+
+  const fields: EmbedPlan['fields'] = [];
+  let hiddenFields = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const cost = candidates[i].name.length + candidates[i].value.length;
+    // Stop at the first field that will not fit rather than cherry-picking
+    // later small ones, which would silently reorder the user's layout.
+    if (cost > b.left) { hiddenFields = candidates.length - i; break; }
+    b.reserve(cost);
+    fields.push(candidates[i]);
+  }
+
+  // Reported in the footer so the omission is visible instead of mysterious.
+  if (hiddenFields > 0) {
+    const note = `… ${hiddenFields} more field${hiddenFields === 1 ? '' : 's'} hidden (6000-character embed limit)`;
+    footerText = footerText ? `${footerText} • ${note}` : note;
+    footerText = footerText.slice(0, LIMITS.embed.footer);
+  }
+
+  return {
+    title, description, authorName, footerText, fields,
+    buttons: resolveButtons(tpl.buttons, resolve, lenient),
+    hiddenFields,
+    text: title.length + description.length + authorName.length + footerText.length
+      + fields.reduce((n, f) => n + f.name.length + f.value.length, 0),
+  };
+}
+
 /** Renders as a classic embed. */
 function renderEmbed(tpl: MessageTemplate, ctx: PlaceholderContext): Record<string, unknown> {
   const p = (v: string | null | undefined) => applyPlaceholders(v, ctx);
+  const plan = planEmbed(tpl, p);
   const embed = new EmbedBuilder().setColor(tpl.color ?? DEFAULT_COLOR);
 
-  const title = p(tpl.title);
-  if (title) embed.setTitle(title.slice(0, 256));
-
-  const description = p(tpl.description);
-  if (description) embed.setDescription(description.slice(0, 4096));
+  if (plan.title) embed.setTitle(plan.title);
+  if (plan.description) embed.setDescription(plan.description);
 
   const url = p(tpl.url);
-  if (title && /^https?:\/\//i.test(url)) embed.setURL(url);
+  if (plan.title && /^https?:\/\//i.test(url)) embed.setURL(url);
 
-  if (tpl.author?.name) {
-    const icon = p(tpl.author.iconUrl);
-    const authorUrl = p(tpl.author.url);
+  if (plan.authorName) {
+    const icon = p(tpl.author?.iconUrl);
+    const authorUrl = p(tpl.author?.url);
     embed.setAuthor({
-      name: p(tpl.author.name).slice(0, 256) || 'Unknown',
+      name: plan.authorName,
       ...(isImageUrl(icon) ? { iconURL: icon } : {}),
       ...(isImageUrl(authorUrl) ? { url: authorUrl } : {}),
     });
@@ -226,139 +404,296 @@ function renderEmbed(tpl: MessageTemplate, ctx: PlaceholderContext): Record<stri
   const thumb = p(tpl.thumbnail);
   if (isImageUrl(thumb)) embed.setThumbnail(thumb);
 
-  // Embeds show one image; extra gallery entries are surfaced as links in the
-  // footer area rather than being dropped.
+  // An embed shows one image; the gallery's first usable entry stands in when
+  // no main image was set, rather than dropping the gallery entirely.
   const image = p(tpl.image) || (tpl.gallery ?? []).map((g) => p(g)).find(isImageUrl) || '';
   if (isImageUrl(image)) embed.setImage(image);
 
-  for (const field of (tpl.fields ?? []).slice(0, 25)) {
-    const name = p(field.name).slice(0, 256);
-    const value = p(field.value).slice(0, 1024);
-    if (!name || !value) continue;
-    embed.addFields({ name, value, inline: Boolean(field.inline) });
-  }
+  for (const field of plan.fields) embed.addFields(field);
 
-  if (tpl.footer?.text) {
-    const icon = p(tpl.footer.iconUrl);
+  if (plan.footerText) {
+    const icon = p(tpl.footer?.iconUrl);
     embed.setFooter({
-      text: p(tpl.footer.text).slice(0, 2048),
+      text: plan.footerText,
       ...(isImageUrl(icon) ? { iconURL: icon } : {}),
     });
   }
   if (tpl.timestamp) embed.setTimestamp(new Date());
 
-  const row = buildButtonRow(tpl.buttons, ctx);
+  const row = buildButtonRow(plan.buttons);
   const content = p(tpl.content);
 
   return {
-    ...(content ? { content: content.slice(0, 2000) } : {}),
+    ...(content ? { content: content.slice(0, LIMITS.content) } : {}),
     embeds: [embed],
     ...(row ? { components: [row] } : {}),
+  };
+}
+
+// ── V2 plan ──────────────────────────────────────────────────────────────────
+
+interface V2Plan {
+  content: string;
+  heading: string;
+  /** Thumbnail rendered as a Section accessory alongside the heading. */
+  headingThumb: string;
+  /** Thumbnail with no heading to attach to, rendered as its own gallery. */
+  loneThumb: string;
+  inlineText: string;
+  blockTexts: string[];
+  gallery: string[];
+  footer: string;
+  buttons: ResolvedButton[];
+  separators: boolean;
+  hiddenFields: number;
+  components: number;
+  text: number;
+}
+
+/**
+ * Plans a V2 message inside both the 4000-character and 40-component budgets.
+ *
+ * Kept separate from rendering so the builder can measure a template without
+ * constructing builders, and so both paths can never disagree about the limits.
+ */
+function planV2(
+  tpl: MessageTemplate,
+  resolve: (v: string | null | undefined) => string,
+  lenient = false,
+): V2Plan {
+  const b = budgeter(LIMITS.v2.text);
+
+  const thumb = resolve(tpl.thumbnail);
+  const authorName = tpl.author?.name ? resolve(tpl.author.name) : '';
+  const title = resolve(tpl.title);
+  const description = resolve(tpl.description);
+
+  const footerText = tpl.footer?.text ? resolve(tpl.footer.text) : '';
+  const stamp = tpl.timestamp ? `<t:${Math.floor(Date.now() / 1000)}:f>` : '';
+  const footerRaw = (footerText || stamp)
+    ? `-# ${[footerText, stamp].filter(Boolean).join(' • ')}`
+    : '';
+  // Footer first: it is short and carries the timestamp, so a long description
+  // must not be able to starve it out.
+  const footer = b.take(footerRaw, 300);
+
+  const content = b.take(resolve(tpl.content), LIMITS.content);
+
+  const fields = (tpl.fields ?? [])
+    .slice(0, LIMITS.embed.fields)
+    .map((f) => ({ name: resolve(f.name), value: resolve(f.value), inline: Boolean(f.inline) }))
+    .filter((f) => f.name && f.value);
+
+  // V2 has no inline layout, so inline fields are joined onto one line to
+  // approximate a side-by-side arrangement.
+  const inlineRaw = fields.filter((f) => f.inline)
+    .map((f) => `**${f.name}**\n${f.value}`).join('   \u2003');
+  const blockRaw = fields.filter((f) => !f.inline).map((f) => `**${f.name}**\n${f.value}`);
+
+  // V2 has no author or title fields, so they become markdown in a text block.
+  const headingRaw = [
+    authorName ? `-# ${authorName}` : '',
+    title ? `# ${title}` : '',
+    description,
+  ].filter(Boolean).join('\n');
+
+  // Room for the "N hidden" note has to be claimed BEFORE the heading takes
+  // what is left, since a long description would otherwise leave nothing and
+  // the note would push the message past 4000. Only reserved when something is
+  // actually going to be cut.
+  const wanted = headingRaw.length + inlineRaw.length + blockRaw.reduce((n, s) => n + s.length, 0);
+  if (blockRaw.length && wanted > b.left) b.reserve(NOTE_RESERVE);
+
+  const heading = b.take(headingRaw, LIMITS.v2.text);
+  const inlineText = b.take(inlineRaw, LIMITS.v2.text);
+
+  let blockTexts: string[] = [];
+  let hiddenFields = 0;
+  for (let i = 0; i < blockRaw.length; i++) {
+    if (blockRaw[i].length > b.left) { hiddenFields = blockRaw.length - i; break; }
+    blockTexts.push(b.take(blockRaw[i], blockRaw[i].length));
+  }
+
+  let gallery = [resolve(tpl.image), ...(tpl.gallery ?? []).map((g) => resolve(g))]
+    .filter((u) => urlish(u, lenient))
+    .slice(0, LIMITS.v2.gallery);
+
+  const buttons = resolveButtons(tpl.buttons, resolve, lenient);
+  const headingThumb = heading && urlish(thumb, lenient) ? thumb : '';
+  const loneThumb = !heading && urlish(thumb, lenient) ? thumb : '';
+  let separators = tpl.separators !== false;
+
+  /**
+   * Component cost model. Nested components count toward the same 40, and
+   * buttons and Section accessories are themselves components. MediaGallery
+   * ITEMS are not — like select options, they are payload inside a component.
+   */
+  const count = (): number => {
+    let n = 1;                                    // the container
+    if (content) n += 1;                          // text display outside it
+    if (heading) n += headingThumb ? 3 : 1;       // section + text child + accessory
+    else if (loneThumb) n += 1;                   // thumbnail promoted to a gallery
+    if (inlineText || blockTexts.length) { if (separators) n += 1; }
+    if (inlineText) n += 1;
+    n += blockTexts.length;
+    if (gallery.length) n += 1;
+    if (footer) { if (separators) n += 1; n += 1; }
+    if (buttons.length) n += 1 + buttons.length;
+    return n;
+  };
+
+  // Degrade in order of least visible damage rather than letting Discord
+  // reject the whole message.
+  let trimmedForComponents = false;
+
+  // 1. Merge field blocks — keeps every character, only spacing changes.
+  if (count() > LIMITS.v2.components && blockTexts.length > 1) {
+    blockTexts = mergeChunks(blockTexts, 1000);
+  }
+  // 2. Drop dividers — purely decorative.
+  if (count() > LIMITS.v2.components && separators) separators = false;
+  // 3. Drop trailing field blocks.
+  while (count() > LIMITS.v2.components && blockTexts.length) {
+    blockTexts.pop();
+    trimmedForComponents = true;
+  }
+  // 4. Last resort: the gallery.
+  if (count() > LIMITS.v2.components && gallery.length) gallery = [];
+
+  // Appended to existing text instead of becoming its own text display, so
+  // explaining the omission does not itself cost a component.
+  const note = hiddenFields > 0
+    ? `-# … ${hiddenFields} more field${hiddenFields === 1 ? '' : 's'} hidden (${LIMITS.v2.text}-character limit)`
+    : (trimmedForComponents
+      ? `-# … some fields hidden (${LIMITS.v2.components}-component limit)`
+      : '');
+
+  let headingOut = heading;
+  if (note) {
+    if (blockTexts.length) blockTexts[blockTexts.length - 1] += `\n${note}`;
+    else if (inlineText) headingOut = `${heading}\n${note}`.trim();
+    else headingOut = `${heading}\n${note}`.trim();
+  }
+
+  return {
+    content, heading: headingOut, headingThumb, loneThumb, inlineText, blockTexts,
+    gallery, footer, buttons, separators, hiddenFields,
+    components: count(),
+    text: content.length + headingOut.length + inlineText.length
+      + blockTexts.reduce((n, s) => n + s.length, 0) + footer.length,
   };
 }
 
 /** Renders as Components V2. */
 function renderV2(tpl: MessageTemplate, ctx: PlaceholderContext): Record<string, unknown> {
   const p = (v: string | null | undefined) => applyPlaceholders(v, ctx);
+  const plan = planV2(tpl, p);
+
   const container = new ContainerBuilder();
   if (typeof tpl.color === 'number') container.setAccentColor(tpl.color);
 
   const divider = () => {
-    if (tpl.separators !== false) {
+    if (plan.separators) {
       container.addSeparatorComponents(
         new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
       );
     }
   };
 
-  // ── Heading block ───────────────────────────────────────────────────────
-  const title = p(tpl.title);
-  const description = p(tpl.description);
-  const authorName = tpl.author?.name ? p(tpl.author.name) : '';
-  const thumb = p(tpl.thumbnail);
-
-  const headingLines = [
-    authorName ? `-# ${authorName}` : '',
-    title ? `# ${title}` : '',
-    description,
-  ].filter(Boolean).join('\n');
-
-  if (headingLines) {
-    // V2 has no author/thumbnail fields, so a thumbnail becomes a Section
-    // accessory — the closest equivalent layout.
-    if (isImageUrl(thumb)) {
+  if (plan.heading) {
+    if (plan.headingThumb) {
+      // V2 has no thumbnail field, so it becomes a Section accessory — the
+      // closest equivalent layout. Section stays within its 3-child cap.
       container.addSectionComponents(
         new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headingLines.slice(0, 4000)))
-          .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumb)),
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(plan.heading))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(plan.headingThumb)),
       );
     } else {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headingLines.slice(0, 4000)));
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(plan.heading));
     }
-  } else if (isImageUrl(thumb)) {
+  } else if (plan.loneThumb) {
     container.addMediaGalleryComponents(
-      new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(thumb)),
+      new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(plan.loneThumb)),
     );
   }
 
-  // ── Fields ──────────────────────────────────────────────────────────────
-  const fields = (tpl.fields ?? []).slice(0, 25)
-    .map((f) => ({ name: p(f.name), value: p(f.value), inline: Boolean(f.inline) }))
-    .filter((f) => f.name && f.value);
-
-  if (fields.length) {
-    divider();
-    // V2 has no inline layout, so inline fields are grouped onto one line to
-    // approximate the side-by-side arrangement.
-    const inlineGroup = fields.filter((f) => f.inline);
-    const blockGroup = fields.filter((f) => !f.inline);
-
-    if (inlineGroup.length) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        inlineGroup.map((f) => `**${f.name}**\n${f.value}`).join('   \u2003'),
-      ));
-    }
-    for (const f of blockGroup) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${f.name}**\n${f.value}`));
-    }
+  if (plan.inlineText || plan.blockTexts.length) divider();
+  if (plan.inlineText) {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(plan.inlineText));
+  }
+  for (const block of plan.blockTexts) {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(block));
   }
 
-  // ── Images ──────────────────────────────────────────────────────────────
-  const images = [p(tpl.image), ...(tpl.gallery ?? []).map((g) => p(g))]
-    .filter(isImageUrl)
-    .slice(0, 10);
-  if (images.length) {
+  if (plan.gallery.length) {
     const gallery = new MediaGalleryBuilder();
-    for (const url of images) gallery.addItems(new MediaGalleryItemBuilder().setURL(url));
+    for (const url of plan.gallery) gallery.addItems(new MediaGalleryItemBuilder().setURL(url));
     container.addMediaGalleryComponents(gallery);
   }
 
-  // ── Footer ──────────────────────────────────────────────────────────────
-  const footerText = tpl.footer?.text ? p(tpl.footer.text) : '';
-  if (footerText || tpl.timestamp) {
+  if (plan.footer) {
     divider();
-    const stamp = tpl.timestamp ? `<t:${Math.floor(Date.now() / 1000)}:f>` : '';
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-      `-# ${[footerText, stamp].filter(Boolean).join(' • ')}`.slice(0, 2000),
-    ));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(plan.footer));
   }
 
-  const row = buildButtonRow(tpl.buttons, ctx);
+  const row = buildButtonRow(plan.buttons);
   if (row) container.addActionRowComponents(row);
 
-  const content = p(tpl.content);
   const components: unknown[] = [container];
-
   // V2 forbids `content`, so plain text is prepended as its own text display —
   // otherwise switching style would silently drop it.
-  if (content) {
-    components.unshift(new TextDisplayBuilder().setContent(content.slice(0, 2000)));
+  if (plan.content) {
+    components.unshift(new TextDisplayBuilder().setContent(plan.content));
   }
 
   return { components, flags: MessageFlags.IsComponentsV2 };
 }
 
-/** Renders a template into a sendable payload in the configured style. */
+/**
+ * Reports how much of the API budget a template uses, for display in the
+ * builder.
+ *
+ * Measured on the UNRESOLVED template: placeholders are left in place, so a
+ * token like `{server.members}` is counted at 17 characters rather than the 2
+ * it becomes. That over-states usage slightly, which is the safe direction for
+ * a warning — it can never claim you are under the limit when you are not.
+ */
+export function measureTemplate(tpl: MessageTemplate): {
+  style: TemplateStyle;
+  text: number;
+  textMax: number;
+  components: number;
+  /** null for embeds, which have no component budget. */
+  componentsMax: number | null;
+  hiddenFields: number;
+  overText: boolean;
+} {
+  const safe: MessageTemplate = { ...emptyTemplate(tpl.style ?? 'embed'), ...tpl };
+  const raw = (v: string | null | undefined) => v ?? '';
+
+  if (safe.style === 'v2') {
+    const plan = planV2(safe, raw, true);
+    return {
+      style: 'v2',
+      text: plan.text, textMax: LIMITS.v2.text,
+      components: plan.components, componentsMax: LIMITS.v2.components,
+      hiddenFields: plan.hiddenFields,
+      overText: plan.hiddenFields > 0,
+    };
+  }
+
+  const plan = planEmbed(safe, raw, true);
+  return {
+    style: 'embed',
+    text: plan.text, textMax: LIMITS.embed.total,
+    components: plan.buttons.length ? 1 + plan.buttons.length : 0,
+    componentsMax: null,
+    hiddenFields: plan.hiddenFields,
+    overText: plan.hiddenFields > 0,
+  };
+}
+
 export function renderTemplate(tpl: MessageTemplate, ctx: PlaceholderContext): Record<string, unknown> {
   const safe: MessageTemplate = { ...emptyTemplate(tpl.style ?? 'embed'), ...tpl };
   return safe.style === 'v2' ? renderV2(safe, ctx) : renderEmbed(safe, ctx);

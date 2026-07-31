@@ -24,6 +24,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import {
   emptyTemplate, renderTemplate, describeTemplate, isRenderable, asEphemeral,
+  measureTemplate, LIMITS,
   type MessageTemplate, type TemplateStyle,
 } from './MessageTemplate';
 import WelcomerManager, { type WelcomerEvent } from '../managers/WelcomerManager';
@@ -160,6 +161,37 @@ function saveVerb(target: string): string {
   return target.startsWith('send:') ? 'Send' : 'Save';
 }
 
+/**
+ * Shows how much of Discord's budget the template uses.
+ *
+ * Worth surfacing because going over does not degrade the message — it rejects
+ * it outright, and the builder happily allows 25 fields plus buttons plus a
+ * gallery, which really can cross both V2 ceilings.
+ */
+function usageLine(tpl: MessageTemplate): string {
+  const u = measureTemplate(tpl);
+  const pct = u.textMax ? Math.round((u.text / u.textMax) * 100) : 0;
+
+  const parts = [`${u.text.toLocaleString()} / ${u.textMax.toLocaleString()} characters`];
+  if (u.componentsMax) parts.push(`${u.components} / ${u.componentsMax} components`);
+
+  const lines: string[] = [];
+  if (u.hiddenFields > 0) {
+    lines.push(
+      `⚠️ **${u.hiddenFields} field${u.hiddenFields === 1 ? '' : 's'} will not be sent** — the message is over Discord's limit.`,
+    );
+  } else if (pct >= 90) {
+    lines.push('⚠️ Close to the limit — further additions may be trimmed.');
+  }
+  lines.push(`-# 📏 Size: ${parts.join(' · ')}${pct >= 90 ? '' : ` (${pct}%)`}`);
+  lines.push(
+    u.style === 'v2'
+      ? `-# Components V2 allows ${LIMITS.v2.components} components and ${LIMITS.v2.text.toLocaleString()} characters per message.`
+      : `-# Embeds allow ${LIMITS.embed.total.toLocaleString()} characters in total across all parts.`,
+  );
+  return lines.join('\n');
+}
+
 /** Builds the panel payload for a session. Pure — callers decide how to deliver it. */
 export function buildPayload(session: BuilderSession): Record<string, unknown> {
   const tpl = session.template;
@@ -174,6 +206,8 @@ export function buildPayload(session: BuilderSession): Record<string, unknown> {
     ].join('\n')))
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(describeTemplate(tpl)))
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(usageLine(tpl)))
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
 
   // Editing groups. Each opens a modal holding at most 5 inputs, which is the
