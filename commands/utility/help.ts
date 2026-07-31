@@ -41,7 +41,7 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
 
 const OWNER_CATEGORY = {
   label: 'Owner', desc: 'Bot management tools (owners only)', color: config.colors.danger,
-  commands: ['maintenance','blacklist','noprefix','eval','shutdown'],
+  commands: ['panel','botconfig','reload','maintenance','blacklist','noprefix','eval','shutdown'],
 };
 
 function isOwner(userId: string): boolean {

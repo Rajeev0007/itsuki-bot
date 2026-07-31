@@ -3,12 +3,11 @@
  * @description Fires once when the bot connects and is ready.
  */
 
-import { ActivityType, type Client } from 'discord.js';
+import { type Client } from 'discord.js';
 import { Event }   from '../structures/Event';
-import config      from '../config/config';
 import logger      from '../utils/Logger';
 import { getStore } from '../database/JsonStore';
-import musicManager from '../managers/MusicManager';
+import PresenceManager from '../managers/PresenceManager';
 import StatsManager from '../managers/StatsManager';
 import CardManager from '../managers/CardManager';
 import CardService from '../services/CardService';
@@ -20,23 +19,10 @@ export default new Event({
     logger.ready(`Logged in as ${client.user!.tag} | ${client.guilds.cache.size} guild(s)`);
     logger.info(`Serving ${client.users.cache.size} users | ${client.channels.cache.size} channels`);
 
-    const activities = config.presence.activities;
-    let idx = 0;
-
-    const setPresence = () => {
-      for (const [, session] of musicManager.sessions) {
-        if (session.current) return;
-      }
-      const act = activities[idx % activities.length];
-      client.user!.setPresence({
-        status: config.presence.status,
-        activities: [{ name: act.name, type: act.type ?? ActivityType.Playing }],
-      });
-      idx++;
-    };
-
-    setPresence();
-    setInterval(setPresence, config.presence.activityInterval);
+    // Presence is owned by PresenceManager so the owner panel can change it
+    // live and have it survive a restart. It restores any saved custom presence
+    // and starts the rotation loop itself.
+    await PresenceManager.init(client);
 
     // ── Activity tracking ───────────────────────────────────────────────────
     // Counters are buffered in memory; this starts the periodic disk flush.

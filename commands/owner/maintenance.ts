@@ -38,7 +38,10 @@ export default new Command({
     // unrecognised value has to be rejected explicitly. Without this the
     // command fell through every branch and returned without ever editing its
     // deferred reply, leaving the message stuck on the loading placeholder.
-    const SUBCOMMANDS = ['on', 'off'];
+    // NOTE: 'status' is handled by fall-through below rather than its own
+    // `if`, so it must be listed here explicitly — omitting it made
+    // `/maintenance status` reject itself as an unknown subcommand.
+    const SUBCOMMANDS = ['on', 'off', 'status'];
     if (!SUBCOMMANDS.includes(sub)) {
       return interaction.editReply({ ...CB.errorResponse(
         'Unknown Subcommand',
