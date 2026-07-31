@@ -36,8 +36,8 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
   cards:       { label: 'Anime Cards', desc: 'Roll, collect, battle and auction anime characters',  color: config.colors.anime,   commands: ['roll','collection','card','upgrade','battle','auction'] },
   stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
   gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',                 color: config.colors.info,    commands: ['minecraft','cs2','valorant'] },
-  moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify','backup'] },
-  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','vote','fetchfile','grab','steal','record'] },
+  moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify','backup','welcomer'] },
+  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','vote','fetchfile','grab','steal','record','msgbuilder'] },
 };
 
 const OWNER_CATEGORY = {
@@ -73,6 +73,8 @@ const SERVER_ONLY = new Set([
   'steal',
   // Needs a second human player.
   'connect4',
+  // Configures per-server join/leave messages and posts into server channels.
+  'welcomer', 'msgbuilder',
 ]);
 
 /** Lists a category's server-only commands, for the DM notice. */
