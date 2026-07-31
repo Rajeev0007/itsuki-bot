@@ -183,24 +183,36 @@ pm2 save && pm2 startup
 
 ### Pterodactyl / Pelican game panels
 
-The stock Node.js egg ends its startup command with:
+Works with the stock Node.js egg — no startup-command edit needed. Set the
+**main file** variable to any of these:
 
-```bash
-if [[ "${MAIN_FILE}" == "*.js" ]]; then node "/home/container/${MAIN_FILE}";
-else ts-node "/home/container/${MAIN_FILE}"; fi
-```
+| `MAIN_FILE` | How the egg launches it |
+|---|---|
+| `index.ts` | `ts-node index.ts` — works; `typescript` is a runtime dependency and `transpileOnly` is set |
+| `index.js` | `node index.js` — delegates to `start.js` |
+| `start.js` | `node start.js` — registers `tsx`, then loads `index.ts` |
 
-That comparison quotes the pattern, so it is a literal string test and never
-matches — **every** value of `MAIN_FILE` falls through to `ts-node`, which
-cannot run this project (see Troubleshooting). Replace the startup command with:
+All three end up in the same place. `start.js` detects whether a TypeScript
+require hook is already registered, so it never stacks a second one on top of
+ts-node.
+
+Two notes on the stock egg:
+
+- Its last line is
+  `if [[ "${MAIN_FILE}" == "*.js" ]]; then node ...; else ts-node ...; fi`.
+  The pattern is quoted, which makes it a literal string test that never
+  matches, so *every* `MAIN_FILE` value actually runs through ts-node. That is
+  supported, so it does not matter — but it does mean picking a `.js` main file
+  will not change which runtime is used.
+- `AUTO_UPDATE=1` makes the panel `git pull` on boot. It pulls the **branch
+  checked out in `/home/container`**, so work sitting on an unmerged branch will
+  never arrive.
+
+If you would rather bypass the egg's logic entirely:
 
 ```bash
 if [ -f /home/container/package.json ]; then npm install; fi; npm start
 ```
-
-`MAIN_FILE` is then unused. Set `AUTO_UPDATE=1` if you want the panel to
-`git pull` on boot — note it pulls the **checked-out branch**, so make sure the
-branch you deploy from is the one that is checked out in `/home/container`.
 
 ### Railway / Render / Fly.io
 
@@ -232,19 +244,15 @@ is an *optional* voice codec and npm should not fail the whole install over
 one. A bare `npm install` picks that up automatically.
 
 **`TypeError: Cannot read properties of undefined (reading 'fileExists')`**
-Something is starting the bot with **ts-node**, and it is a *globally
-installed* one (`/usr/local/lib/node_modules/ts-node`). Node resolves a global
-package's own imports from the global tree, never from
-`/home/container/node_modules`, so that ts-node cannot see this project's
-`typescript` and crashes before it reads a single file. Installing typescript
-locally does not help.
+ts-node could not load the `typescript` module, so its internal `ts` binding
+was undefined. Almost always this means **`npm install` failed earlier in the
+same command** — check further up the log — and `node_modules` was never
+populated. Fix the install and this goes away.
 
-This project does not use ts-node at all — `start.js` loads `tsx`. Fix the
-startup command, not the dependencies:
-
-```bash
-npm start
-```
+`typescript` is a runtime `dependency` rather than a devDependency precisely so
+it survives `npm install --omit=dev`, and `tsconfig.json` sets
+`ts-node.transpileOnly` so start-up skips type checking (fast, and a stray type
+error cannot stop the bot booting).
 
 **`Cannot find module 'tsx/cjs'`**
 Dependencies are not installed. Run `npm install`.
