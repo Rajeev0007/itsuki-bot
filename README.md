@@ -96,7 +96,7 @@ No build step required — TypeScript runs directly via `tsx`.
 | `npm start` | Start the bot |
 | `npm run dev` | Watch mode — auto-restart on file changes |
 | `npm run migrate` | Dry-run import of legacy `database/*.json` into MongoDB |
-| `npm run deploy` | Register slash commands globally |
+| `npm run deploy` | Public commands globally + owner tools to your dev guild |
 | `npm run deploy:guild` | Register to dev guild instantly |
 | `npm run typecheck` | Type-check without running |
 
@@ -260,6 +260,35 @@ only global commands can. Use `npm run deploy` for that, and
 
 ---
 
+### Command count and Discord's 100-command cap
+
+Discord allows **100 chat-input commands per scope** — 100 global, and 100 per
+guild. Going over does not truncate: the **entire registration is rejected**, so
+one command too many leaves the bot with whatever was registered last.
+
+Itsuki has **103** commands, so owner-only tools are registered to your dev guild
+rather than globally:
+
+```
+103 total  ->  92 global  +  11 dev guild        (8 global slots spare)
+```
+
+That is where owner tools belong anyway — they are useless to normal users, they
+would clutter every server's command list, and guild commands appear instantly
+instead of taking up to an hour. Classification comes from each command's
+`ownerOnly` flag, not its folder, so `/noprefix` is included despite living under
+`commands/utility/`.
+
+Set `DISCORD_GUILD_ID` to your own server for this. If you leave it unset, the 92
+public commands still register and the owner ones are skipped with a warning —
+the bot stays fully usable, and owner tools remain available by prefix
+(`,panel`) which does not depend on registration at all.
+
+`npm run deploy:guild` still pushes **everything** to one guild for testing, and
+will refuse if that exceeds 100.
+
+---
+
 ## Hosting
 
 ### Any x86-64 VPS (Ubuntu / Debian)
@@ -389,6 +418,11 @@ commands can also take up to an hour to propagate after a change.
 Working as intended. The command needs server data — channels, roles, voice
 state — and an account install cannot see any of that. Invite the bot to the
 server and it works immediately.
+
+**`exceeds Discord's limit of 100`**
+More than 100 commands in one scope. Set `DISCORD_GUILD_ID` so owner tools go to
+your dev guild — see [Command count](#command-count-and-discords-100-command-cap).
+Nothing is sent when this happens, so no commands are lost; fix it and restart.
 
 **`canvas` fails to build**
 Install the native libraries listed under [Requirements](#requirements), then

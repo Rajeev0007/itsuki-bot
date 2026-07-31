@@ -1,19 +1,36 @@
 /**
  * @file AutoDeploy.ts
- * @description Smart global command sync on startup.
+ * @description Smart command sync on startup.
  *
- * On every boot:
+ * Per scope (global, and the dev guild for owner tools):
  * 1. Load local command definitions from disk.
- * 2. Fetch what Discord already has registered globally.
+ * 2. Fetch what Discord already has registered for that scope.
  * 3. Diff both sets (added / changed / removed).
  * 4. If nothing changed → skip the API call entirely.
- * 5. If anything changed → bulk PUT only what's needed and log what changed.
+ * 5. If anything changed → bulk PUT and log what changed.
+ *
+ * ── The 100-command ceiling ─────────────────────────────────────────────────
+ * Discord allows 100 chat-input commands per scope: 100 global, and 100 per
+ * guild. Exceeding it does not truncate — the ENTIRE registration is rejected,
+ * so one command too many leaves the bot with whatever was registered last.
+ *
+ * The bot has more than 100 commands, so owner-only tools are registered to the
+ * dev guild instead of globally. That is where they belong anyway: they are
+ * useless to normal users, they clutter every server's command list, and guild
+ * commands appear instantly rather than taking up to an hour. It also leaves
+ * real headroom under the global cap.
  */
 
 import { REST, Routes } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
 import logger from './Logger';
+import config from '../config/config';
+
+/** Discord's hard cap on chat-input commands, per scope. */
+const COMMAND_LIMIT = 100;
+/** Warn once the headroom gets thin enough to matter. */
+const COMMAND_WARN_AT = 95;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface RawCommand {
@@ -29,9 +46,15 @@ interface RawCommand {
   integration_types?: number[] | null;
 }
 
+interface LocalCommand {
+  json: RawCommand;
+  /** Owner tools are registered to the dev guild, not globally. */
+  ownerOnly: boolean;
+}
+
 // ── Load local commands from commands/ ────────────────────────────────────────
-function loadLocal(commandsDir: string): Map<string, RawCommand> {
-  const map = new Map<string, RawCommand>();
+function loadLocal(commandsDir: string): Map<string, LocalCommand> {
+  const map = new Map<string, LocalCommand>();
   if (!fs.existsSync(commandsDir)) return map;
 
   const categories = fs.readdirSync(commandsDir).filter(
@@ -47,7 +70,9 @@ function loadLocal(commandsDir: string): Map<string, RawCommand> {
         const cmd = raw.default ?? raw;
         if (cmd?.data?.toJSON) {
           const json = cmd.data.toJSON() as RawCommand;
-          map.set(json.name, json);
+          // Read from the command's own flag rather than the folder name:
+          // /noprefix lives under utility but is owner-only.
+          map.set(json.name, { json, ownerOnly: Boolean(cmd.ownerOnly) });
         }
       } catch { /* skip unloadable file */ }
     }
@@ -132,72 +157,73 @@ export function normalize(cmd: unknown): string {
   return JSON.stringify(clean(normalised));
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
-export async function autoDeployCommands(
-  token: string,
-  clientId: string,
-  commandsDir: string,
-): Promise<void> {
-  const rest = new REST({ version: '10' }).setToken(token);
-
-  // 1. Load local
-  const local = loadLocal(commandsDir);
-  if (local.size === 0) {
-    logger.warn('[AutoDeploy] No local commands found — skipping.');
-    return;
+// ── Scope sync ────────────────────────────────────────────────────────────────
+/**
+ * Syncs one scope (global, or a single guild) and reports whether it succeeded.
+ *
+ * Each scope is diffed and PUT independently: a change to an owner tool must not
+ * force a global re-registration, and vice versa.
+ */
+async function syncScope(
+  rest: REST,
+  route: `/${string}`,
+  bodies: RawCommand[],
+  label: string,
+): Promise<boolean> {
+  // Guard BEFORE calling Discord. Over the limit the API rejects the whole
+  // request, so the failure would otherwise arrive as an opaque 400 with the
+  // bot left holding whatever set was registered previously.
+  if (bodies.length > COMMAND_LIMIT) {
+    const overflow = bodies.slice(COMMAND_LIMIT).map((c) => c.name);
+    logger.error(`[AutoDeploy] ${label}: ${bodies.length} commands exceeds Discord's limit of ${COMMAND_LIMIT}.`);
+    logger.error(`[AutoDeploy] Discord rejects the ENTIRE registration when this happens, so nothing was sent.`);
+    logger.error(`[AutoDeploy] ${overflow.length} over: ${overflow.join(', ')}`);
+    logger.error('[AutoDeploy] Fix by setting DISCORD_GUILD_ID (moves owner tools off the global scope), or by merging related commands into subcommands.');
+    return false;
+  }
+  if (bodies.length >= COMMAND_WARN_AT) {
+    logger.warn(`[AutoDeploy] ${label}: ${bodies.length}/${COMMAND_LIMIT} commands — ${COMMAND_LIMIT - bodies.length} slot(s) left.`);
   }
 
-  // 2. Fetch registered global commands
   let registered: RawCommand[] = [];
   try {
-    registered = (await rest.get(Routes.applicationCommands(clientId))) as RawCommand[];
+    registered = (await rest.get(route)) as RawCommand[];
   } catch (err) {
-    logger.error('[AutoDeploy] Could not fetch registered commands:', (err as Error).message);
-    return;
+    logger.error(`[AutoDeploy] ${label}: could not fetch registered commands:`, (err as Error).message);
+    return false;
   }
 
   const registeredMap = new Map(registered.map((c) => [c.name, c]));
+  const localMap = new Map(bodies.map((c) => [c.name, c]));
 
-  // 3. Diff
   const added: string[] = [];
   const changed: string[] = [];
   const removed: string[] = [];
 
-  for (const [name, localCmd] of local) {
-    if (!registeredMap.has(name)) {
-      added.push(name);
-    } else if (normalize(localCmd) !== normalize(registeredMap.get(name)!)) {
-      changed.push(name);
-    }
+  for (const [name, localCmd] of localMap) {
+    if (!registeredMap.has(name)) added.push(name);
+    else if (normalize(localCmd) !== normalize(registeredMap.get(name)!)) changed.push(name);
   }
   for (const name of registeredMap.keys()) {
-    if (!local.has(name)) removed.push(name);
+    if (!localMap.has(name)) removed.push(name);
   }
 
-  // 4. Skip if nothing changed
-  if (added.length === 0 && changed.length === 0 && removed.length === 0) {
-    logger.info(`[AutoDeploy] All ${local.size} commands are up-to-date — skipping registration.`);
-    return;
+  if (!added.length && !changed.length && !removed.length) {
+    logger.info(`[AutoDeploy] ${label}: all ${bodies.length} commands up-to-date — skipping registration.`);
+    return true;
   }
 
-  // 5. Log what changed, then sync
-  if (added.length) logger.info(`[AutoDeploy] New : ${added.join(', ')}`);
-  if (changed.length) logger.info(`[AutoDeploy] Updated: ${changed.join(', ')}`);
-  if (removed.length) logger.info(`[AutoDeploy] Removed: ${removed.join(', ')}`);
+  if (added.length) logger.info(`[AutoDeploy] ${label} new: ${added.join(', ')}`);
+  if (changed.length) logger.info(`[AutoDeploy] ${label} updated: ${changed.join(', ')}`);
+  if (removed.length) logger.info(`[AutoDeploy] ${label} removed: ${removed.join(', ')}`);
 
-  const bodies = [...local.values()];
-  const userInstallable = bodies.filter(
-    (c) => (c as RawCommand).integration_types?.includes(1),
-  ).length;
+  const userInstallable = bodies.filter((c) => c.integration_types?.includes(1)).length;
 
   try {
-    logger.info(`[AutoDeploy] Syncing ${local.size} commands globally (${userInstallable} available as user installs)…`);
+    logger.info(`[AutoDeploy] ${label}: syncing ${bodies.length} commands (${userInstallable} as user installs)…`);
     let result: unknown[];
     try {
-      result = (await rest.put(
-        Routes.applicationCommands(clientId),
-        { body: bodies },
-      )) as unknown[];
+      result = (await rest.put(route, { body: bodies })) as unknown[];
     } catch (err) {
       if (!isUserInstallRejected(err)) throw err;
       // The app-level "User Install" switch lives in the Developer Portal and
@@ -206,14 +232,64 @@ export async function autoDeployCommands(
       logger.warn('[AutoDeploy] Discord rejected the user-install registration.');
       logger.warn('[AutoDeploy] Enable it at: Developer Portal → your app → Installation → Installation Contexts → tick "User Install".');
       logger.warn('[AutoDeploy] Registering with server install only for now; re-run once it is enabled.');
-      result = (await rest.put(
-        Routes.applicationCommands(clientId),
-        { body: bodies.map(withoutUserInstall) },
-      )) as unknown[];
+      result = (await rest.put(route, { body: bodies.map(withoutUserInstall) })) as unknown[];
     }
-    logger.info(`[AutoDeploy] ${result.length} global commands registered.`);
+    logger.info(`[AutoDeploy] ${label}: ${result.length} commands registered.`);
+    return true;
   } catch (err) {
-    logger.error('[AutoDeploy] Registration failed:', (err as Error).message);
+    logger.error(`[AutoDeploy] ${label}: registration failed:`, (err as Error).message);
+    return false;
+  }
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+export async function autoDeployCommands(
+  token: string,
+  clientId: string,
+  commandsDir: string,
+  guildId: string = config.guildId,
+): Promise<void> {
+  const rest = new REST({ version: '10' }).setToken(token);
+
+  const local = loadLocal(commandsDir);
+  if (local.size === 0) {
+    logger.warn('[AutoDeploy] No local commands found — skipping.');
+    return;
+  }
+
+  const all = [...local.values()];
+  const ownerCmds = all.filter((c) => c.ownerOnly).map((c) => c.json);
+  const publicCmds = all.filter((c) => !c.ownerOnly).map((c) => c.json);
+
+  // Owner tools go to the dev guild when one is configured. Without it they have
+  // to stay global, which may push the global scope over the cap — syncScope
+  // then reports exactly that instead of letting Discord fail obscurely.
+  const splitOwnerCommands = Boolean(guildId) && ownerCmds.length > 0;
+
+  let globalBodies: RawCommand[];
+  if (splitOwnerCommands) {
+    globalBodies = publicCmds;
+  } else if (all.length > COMMAND_LIMIT) {
+    // No dev guild configured and too many commands for one scope. Dropping the
+    // owner tools keeps the PUBLIC bot fully working, which matters far more
+    // than owner slash commands — and their prefix forms (",panel") are routed
+    // by messageCreate, so they are unaffected. Registering all of them instead
+    // would have Discord reject everything and leave the bot with no commands.
+    globalBodies = publicCmds;
+    logger.warn(`[AutoDeploy] ${all.length} commands exceeds the global cap of ${COMMAND_LIMIT}, and DISCORD_GUILD_ID is not set.`);
+    logger.warn(`[AutoDeploy] Registering the ${publicCmds.length} public commands only; the ${ownerCmds.length} owner command(s) are being skipped.`);
+    logger.warn('[AutoDeploy] Set DISCORD_GUILD_ID to register them to your dev guild instead. Their prefix forms work regardless.');
+  } else {
+    globalBodies = all.map((c) => c.json);
+  }
+  await syncScope(rest, Routes.applicationCommands(clientId), globalBodies, 'global');
+
+  if (splitOwnerCommands) {
+    // Owner commands are guild-scoped, so the slash versions only appear in the
+    // dev guild. The prefix forms (",panel") are routed by messageCreate and are
+    // unaffected, so they still work in DMs.
+    logger.info(`[AutoDeploy] ${ownerCmds.length} owner command(s) → dev guild ${guildId} (kept off the global ${COMMAND_LIMIT}-command cap).`);
+    await syncScope(rest, Routes.applicationGuildCommands(clientId, guildId), ownerCmds, `guild ${guildId}`);
   }
 }
 
