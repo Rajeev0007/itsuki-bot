@@ -36,7 +36,7 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
   cards:       { label: 'Anime Cards', desc: 'Roll, collect, battle and auction anime characters',  color: config.colors.anime,   commands: ['roll','collection','card','upgrade','battle','auction'] },
   stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
   gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',                 color: config.colors.info,    commands: ['minecraft','cs2','valorant'] },
-  moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog'] },
+  moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify'] },
   utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand'] },
 };
 
@@ -60,7 +60,7 @@ const SERVER_ONLY = new Set([
   'botbrand', 'tictactoe',
   // Moderation acts on servers, members and channels.
   'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'purge',
-  'slowmode', 'lock', 'modlog',
+  'slowmode', 'lock', 'modlog', 'verify',
   // Activity is tracked per server.
   'userstats',
   // Needs a second human player.

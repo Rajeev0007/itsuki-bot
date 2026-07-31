@@ -181,15 +181,58 @@ export default new Command({
           '-# Steam → Profile → Privacy Settings → *Game details: Public*.',
         ].join('\n')));
       } else {
+        // ── Core ──────────────────────────────────────────────────────────
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
-          `**Kills:** ${fmt.number(stats.kills)}   **Deaths:** ${fmt.number(stats.deaths)}`,
-          `**K/D:** ${stats.kd ?? '—'}   **Headshot %:** ${stats.hsPercent ?? '—'}%`,
-          `**Accuracy:** ${stats.accuracy ?? '—'}%`,
-          '',
-          `**Wins:** ${fmt.number(stats.wins)}   **Rounds:** ${fmt.number(stats.rounds)}`,
-          `**MVPs:** ${fmt.number(stats.mvps)}`,
-          `**Hours played:** ${fmt.number(stats.timePlayedHours)}h`,
+          '**Overall**',
+          `> **K/D** ${stats.kd ?? '—'} · **HS%** ${stats.hsPercent ?? '—'}% · **Accuracy** ${stats.accuracy ?? '—'}%`,
+          `> **Kills** ${fmt.number(stats.kills)} · **Deaths** ${fmt.number(stats.deaths)} · **MVPs** ${fmt.number(stats.mvps)}`,
+          `> **Matches** ${fmt.number(stats.matchesWon)}/${fmt.number(stats.matchesPlayed)} won (${stats.matchWinRate ?? '—'}%)`,
+          `> **Rounds** ${fmt.number(stats.rounds)} · **Hours** ${fmt.number(stats.timePlayedHours)}h`,
         ].join('\n')));
+
+        // ── Weapons ───────────────────────────────────────────────────────
+        if (stats.topWeapons.length) {
+          const top = stats.topWeapons.slice(0, 6).map((w, i) =>
+            `> \`${i + 1}.\` **${w.name}** — ${fmt.number(w.kills)} kills${w.accuracy !== null ? ` · ${w.accuracy}% acc` : ''}`,
+          );
+          container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+              `**Top weapons**\n${top.join('\n')}`,
+            ));
+        }
+
+        // ── Maps ──────────────────────────────────────────────────────────
+        if (stats.mapStats.length) {
+          const maps = stats.mapStats.slice(0, 5).map((m) =>
+            `> **${m.name}** — ${m.winRate ?? '—'}% win rate (${fmt.number(m.rounds)} rounds)`,
+          );
+          container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+              `**Most played maps**\n${maps.join('\n')}`,
+            ));
+        }
+
+        // ── Objectives and specials ───────────────────────────────────────
+        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '**Objectives & specials**',
+            `> **Bombs** ${fmt.number(stats.bombsPlanted)} planted · ${fmt.number(stats.bombsDefused)} defused`,
+            `> **Hostages rescued** ${fmt.number(stats.hostagesRescued)}`,
+            `> **Knife** ${fmt.number(stats.knifeKills)} · **Grenade** ${fmt.number(stats.grenadeKills)} · **Molotov** ${fmt.number(stats.molotovKills)}`,
+            `> **Dominations** ${fmt.number(stats.dominations)} · **Revenges** ${fmt.number(stats.revenges)}`,
+          ].join('\n')));
+
+        // ── Last match ────────────────────────────────────────────────────
+        if (stats.lastMatch) {
+          const lm = stats.lastMatch;
+          container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+              `**Last match** ${lm.won === null ? '' : lm.won ? '· 🟢 Won' : '· 🔴 Lost'}`,
+              `> **${lm.kills}** / **${lm.deaths}** (K/D ${lm.kd ?? '—'}) · **${lm.mvps}** MVPs`,
+              `> Score **${lm.tWins + lm.ctWins}** – **${Math.max(0, lm.rounds - lm.tWins - lm.ctWins)}** over ${lm.rounds} rounds`,
+              lm.damage > 0 ? `> **${fmt.number(lm.damage)}** damage · $${fmt.number(lm.moneySpent)} spent` : '',
+            ].filter(Boolean).join('\n')));
+        }
       }
 
       container.addActionRowComponents(

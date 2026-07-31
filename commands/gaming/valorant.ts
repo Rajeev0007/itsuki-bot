@@ -160,16 +160,55 @@ export default new Command({
         ) } as never);
       }
 
-      const p = await Valorant.getPlayer(riotId.slice(0, hashIdx), riotId.slice(hashIdx + 1));
+      const pName = riotId.slice(0, hashIdx);
+      const pTag = riotId.slice(hashIdx + 1);
+      const p = await Valorant.getPlayer(pName, pTag);
+      // Match history is best-effort and returns [] when unavailable.
+      const matches = await Valorant.getRecentMatches(p.region.toLowerCase(), pName, pTag, 5);
+
       const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
           `# ${p.name}#${p.tag}`,
-          `-# Region **${p.region}**`,
-          `**Level:** ${fmt.number(p.level)}`,
-          `**Rank:** ${p.rank ?? 'Unranked'}`,
-          p.rr !== null ? `**RR:** ${p.rr}/100` : '',
-          p.elo !== null ? `**Elo:** ${fmt.number(p.elo)}` : '',
+          `-# Region **${p.region}** · Level **${fmt.number(p.level)}**`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+          '**Rank**',
+          `> **Current:** ${p.rank ?? 'Unranked'}${p.rr !== null ? ` · ${p.rr}/100 RR` : ''}`,
+          p.elo !== null ? `> **Elo:** ${fmt.number(p.elo)}` : '',
+          p.peakRank ? `> **Peak:** ${p.peakRank}${p.peakSeason ? ` (${p.peakSeason.toUpperCase()})` : ''}` : '',
         ].filter(Boolean).join('\n')));
+
+      if (matches.length) {
+        // Aggregate the recent window — a single match says little.
+        const totals = matches.reduce((acc, m) => ({
+          k: acc.k + m.kills, d: acc.d + m.deaths, a: acc.a + m.assists,
+          hs: acc.hs + m.headshots, shots: acc.shots + m.headshots + m.bodyshots + m.legshots,
+          wins: acc.wins + (m.won === true ? 1 : 0),
+          acs: acc.acs + (m.acs ?? 0),
+        }), { k: 0, d: 0, a: 0, hs: 0, shots: 0, wins: 0, acs: 0 });
+
+        const avgKd = totals.d > 0 ? (totals.k / totals.d).toFixed(2) : '—';
+        const hsPct = totals.shots > 0 ? ((totals.hs / totals.shots) * 100).toFixed(1) : '—';
+        const avgAcs = Math.round(totals.acs / matches.length);
+
+        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Last ${matches.length} matches**`,
+            `> **${totals.wins}W – ${matches.length - totals.wins}L** · K/D **${avgKd}** · HS **${hsPct}%** · ACS **${avgAcs}**`,
+            '',
+            ...matches.map((m) => {
+              const badge = m.won === null ? '⬜' : m.won ? '🟢' : '🔴';
+              return `> ${badge} **${m.agent}** on **${m.map}** — ${m.kills}/${m.deaths}/${m.assists}`
+                + ` (${m.roundsWon}-${m.roundsLost})${m.acs !== null ? ` · ${m.acs} ACS` : ''}`;
+            }),
+          ].join('\n')));
+      } else {
+        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            '-# No recent competitive matches available for this account.',
+          ));
+      }
 
       if (p.cardUrl) {
         container.addMediaGalleryComponents(

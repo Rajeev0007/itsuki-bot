@@ -169,6 +169,21 @@ export interface ValMap {
   minimapUrl: string | null;
 }
 
+export interface ValMatch {
+  map: string;
+  mode: string;
+  agent: string;
+  kills: number; deaths: number; assists: number;
+  score: number;
+  headshots: number; bodyshots: number; legshots: number;
+  won: boolean | null;
+  roundsWon: number; roundsLost: number;
+  kd: number | null;
+  /** Average combat score. */
+  acs: number | null;
+  startedAt: number | null;
+}
+
 /** valorant-api.com content cache — static data, so cache for the process. */
 const valCache = new Map<string, unknown>();
 
@@ -293,10 +308,77 @@ export const Valorant = {
     return hit;
   },
 
+  /**
+   * Recent competitive matches with the player's own scoreline.
+   *
+   * Returns [] rather than throwing: a private or brand-new account legitimately
+   * has no match history, and that must not fail the profile lookup.
+   */
+  async getRecentMatches(region: string, name: string, tag: string, limit = 5): Promise<ValMatch[]> {
+    const key = process.env.HENRIKDEV_API_KEY;
+    if (!key) return [];
+
+    try {
+      const res = await http.get(
+        `https://api.henrikdev.xyz/valorant/v3/matches/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
+        { headers: { Authorization: key }, params: { size: limit }, validateStatus: () => true } as never,
+      );
+      if (res.status !== 200) return [];
+
+      const matches = (res.data?.data as Array<Record<string, never>> | undefined) ?? [];
+      const out: ValMatch[] = [];
+
+      for (const m of matches.slice(0, limit)) {
+        const meta = m.metadata as Record<string, never> | undefined;
+        const players = (m.players as { all_players?: Array<Record<string, never>> } | undefined)?.all_players;
+        if (!Array.isArray(players)) continue;
+
+        // Locate this player within the match to read their own stats.
+        const me = players.find((p) =>
+          String(p.name ?? '').toLowerCase() === name.toLowerCase()
+          && String(p.tag ?? '').toLowerCase() === tag.toLowerCase());
+        if (!me) continue;
+
+        const stats = me.stats as Record<string, never> | undefined;
+        const teams = m.teams as Record<string, { has_won?: boolean; rounds_won?: number }> | undefined;
+        const myTeam = String(me.team ?? '').toLowerCase();
+        const team = teams?.[myTeam];
+        const enemy = teams?.[myTeam === 'red' ? 'blue' : 'red'];
+
+        const kills = Number(stats?.kills) || 0;
+        const deaths = Number(stats?.deaths) || 0;
+        const rounds = Number(meta?.rounds_played) || 0;
+
+        out.push({
+          map: String(meta?.map ?? 'Unknown'),
+          mode: String(meta?.mode ?? 'Unknown'),
+          agent: String(me.character ?? 'Unknown'),
+          kills, deaths,
+          assists: Number(stats?.assists) || 0,
+          score: Number(stats?.score) || 0,
+          headshots: Number(stats?.headshots) || 0,
+          bodyshots: Number(stats?.bodyshots) || 0,
+          legshots: Number(stats?.legshots) || 0,
+          won: typeof team?.has_won === 'boolean' ? team.has_won : null,
+          roundsWon: Number(team?.rounds_won) || 0,
+          roundsLost: Number(enemy?.rounds_won) || 0,
+          kd: deaths > 0 ? Math.round((kills / deaths) * 100) / 100 : null,
+          // Average combat score — the metric players actually compare.
+          acs: rounds > 0 ? Math.round((Number(stats?.score) || 0) / rounds) : null,
+          startedAt: Number(meta?.game_start) ? Number(meta.game_start) * 1000 : null,
+        });
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  },
+
   /** Player lookup — needs HENRIKDEV_API_KEY. */
   async getPlayer(name: string, tag: string): Promise<{
     name: string; tag: string; region: string; level: number; cardUrl: string | null;
     rank: string | null; rr: number | null; elo: number | null;
+    peakRank: string | null; peakSeason: string | null;
   }> {
     const key = process.env.HENRIKDEV_API_KEY;
     if (!key) {
@@ -333,18 +415,30 @@ export const Valorant = {
     // Rank is a separate endpoint; a missing rank is normal for unranked
     // players, so it must not fail the whole lookup.
     let rank: string | null = null, rr: number | null = null, elo: number | null = null;
+    let peakRank: string | null = null, peakSeason: string | null = null;
     try {
       const mmr = await http.get(
         `https://api.henrikdev.xyz/valorant/v2/mmr/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         { headers, validateStatus: () => true } as never,
       );
-      const cur = (mmr.data?.data as { current_data?: Record<string, never> } | undefined)?.current_data;
+      const mmrData = mmr.data?.data as {
+        current_data?: Record<string, never>;
+        highest_rank?: Record<string, never>;
+      } | undefined;
+
+      const cur = mmrData?.current_data;
       if (cur) {
         rank = (cur.currenttierpatched as string | null) ?? null;
         rr = Number(cur.ranking_in_tier);
         elo = Number(cur.elo);
         if (!Number.isFinite(rr)) rr = null;
         if (!Number.isFinite(elo)) elo = null;
+      }
+
+      const peak = mmrData?.highest_rank;
+      if (peak) {
+        peakRank = (peak.patched_tier as string | null) ?? null;
+        peakSeason = (peak.season as string | null) ?? null;
       }
     } catch {
       /* rank is optional */
@@ -356,7 +450,7 @@ export const Valorant = {
       region: region.toUpperCase(),
       level: Number(acc.account_level) || 0,
       cardUrl: (acc.card as { wide?: string } | undefined)?.wide ?? null,
-      rank, rr, elo,
+      rank, rr, elo, peakRank, peakSeason,
     };
   },
 };
@@ -374,13 +468,58 @@ export interface SteamProfile {
   state: number;
 }
 
+export interface Cs2WeaponStat {
+  name: string; kills: number; shots: number; hits: number; accuracy: number | null;
+}
+
+export interface Cs2MapStat {
+  name: string; wins: number; rounds: number; winRate: number | null;
+}
+
+export interface Cs2LastMatch {
+  kills: number; deaths: number; mvps: number; rounds: number;
+  tWins: number; ctWins: number; moneySpent: number; damage: number;
+  won: boolean | null; kd: number | null;
+}
+
 export interface Cs2Stats {
   kills: number; deaths: number; wins: number; rounds: number;
   headshots: number; mvps: number; timePlayedHours: number;
   accuracy: number | null; kd: number | null; hsPercent: number | null;
+  matchesPlayed: number; matchesWon: number; matchWinRate: number | null;
+  bombsPlanted: number; bombsDefused: number; hostagesRescued: number;
+  knifeKills: number; grenadeKills: number; molotovKills: number;
+  zoomedSniperKills: number; dominations: number; revenges: number;
+  moneyEarned: number;
+  /** Sorted by kills, highest first. */
+  topWeapons: Cs2WeaponStat[];
+  /** Sorted by rounds played, highest first. */
+  mapStats: Cs2MapStat[];
+  lastMatch: Cs2LastMatch | null;
 }
 
 const CS2_APPID = 730;
+
+/** Steam stat suffix → display name. */
+const CS2_WEAPON_KEYS: Record<string, string> = {
+  ak47: 'AK-47', m4a1: 'M4A4 / M4A1-S', awp: 'AWP', deagle: 'Desert Eagle',
+  glock: 'Glock-18', hkp2000: 'P2000 / USP-S', p90: 'P90', mp7: 'MP7',
+  mp9: 'MP9', ump45: 'UMP-45', famas: 'FAMAS', galilar: 'Galil AR',
+  aug: 'AUG', sg556: 'SG 553', ssg08: 'SSG 08', scar20: 'SCAR-20',
+  g3sg1: 'G3SG1', nova: 'Nova', xm1014: 'XM1014', mag7: 'MAG-7',
+  sawedoff: 'Sawed-Off', negev: 'Negev', m249: 'M249', bizon: 'PP-Bizon',
+  tec9: 'Tec-9', fiveseven: 'Five-SeveN', p250: 'P250', elite: 'Dual Berettas',
+  taser: 'Zeus x27',
+};
+
+/** Steam map suffix → display name. */
+const CS2_MAP_KEYS: Record<string, string> = {
+  de_dust2: 'Dust II', de_mirage: 'Mirage', de_inferno: 'Inferno',
+  de_nuke: 'Nuke', de_train: 'Train', de_cbble: 'Cobblestone',
+  de_overpass: 'Overpass', de_vertigo: 'Vertigo', de_ancient: 'Ancient',
+  de_anubis: 'Anubis', de_cache: 'Cache', cs_office: 'Office',
+  cs_italy: 'Italy', cs_assault: 'Assault',
+};
 
 export const Steam = {
   isConfigured(): boolean {
@@ -465,13 +604,71 @@ export const Steam = {
     const raw = (res.data?.playerstats as { stats?: Array<{ name: string; value: number }> } | undefined)?.stats;
     if (!Array.isArray(raw) || !raw.length) return null;
 
-    const get = (name: string): number => Number(raw.find((s) => s.name === name)?.value) || 0;
+    // Index once — Steam returns ~250 stats and the lookups below are numerous.
+    const index = new Map<string, number>();
+    for (const s of raw) {
+      if (s && typeof s.name === 'string') index.set(s.name, Number(s.value) || 0);
+    }
+    const get = (name: string): number => index.get(name) ?? 0;
+    const pct = (num: number, den: number, dp = 1): number | null => {
+      if (den <= 0) return null;
+      const f = 10 ** dp;
+      return Math.round((num / den) * 100 * f) / f;
+    };
 
     const kills = get('total_kills');
     const deaths = get('total_deaths');
     const shots = get('total_shots_fired');
     const hits = get('total_shots_hit');
     const headshots = get('total_kills_headshot');
+    const matchesPlayed = get('total_matches_played');
+    const matchesWon = get('total_matches_won');
+
+    // ── Per-weapon breakdown ────────────────────────────────────────────────
+    const topWeapons: Cs2WeaponStat[] = Object.entries(CS2_WEAPON_KEYS)
+      .map(([key, name]) => {
+        const wKills = get(`total_kills_${key}`);
+        const wShots = get(`total_shots_${key}`);
+        const wHits = get(`total_hits_${key}`);
+        return { name, kills: wKills, shots: wShots, hits: wHits, accuracy: pct(wHits, wShots) };
+      })
+      // Drop weapons never used, or the list is mostly zeroes.
+      .filter((w) => w.kills > 0)
+      .sort((a, b) => b.kills - a.kills);
+
+    // ── Per-map breakdown ───────────────────────────────────────────────────
+    const mapStats: Cs2MapStat[] = Object.entries(CS2_MAP_KEYS)
+      .map(([key, name]) => {
+        const mWins = get(`total_wins_map_${key}`);
+        const mRounds = get(`total_rounds_map_${key}`);
+        return { name, wins: mWins, rounds: mRounds, winRate: pct(mWins, mRounds) };
+      })
+      .filter((m) => m.rounds > 0)
+      .sort((a, b) => b.rounds - a.rounds);
+
+    // ── Last match ──────────────────────────────────────────────────────────
+    // Steam only populates these once a competitive match has been played.
+    const lmRounds = get('last_match_rounds');
+    const lmT = get('last_match_t_wins');
+    const lmCt = get('last_match_ct_wins');
+    const lmKills = get('last_match_kills');
+    const lmDeaths = get('last_match_deaths');
+    const lastMatch: Cs2LastMatch | null = lmRounds > 0
+      ? {
+          kills: lmKills,
+          deaths: lmDeaths,
+          mvps: get('last_match_mvps'),
+          rounds: lmRounds,
+          tWins: lmT,
+          ctWins: lmCt,
+          moneySpent: get('last_match_money_spent'),
+          damage: get('last_match_damage'),
+          // The player's own wins are their side's; more than half the rounds
+          // means they took the match.
+          won: lmRounds > 0 ? (lmT + lmCt) > (lmRounds - (lmT + lmCt)) : null,
+          kd: lmDeaths > 0 ? Math.round((lmKills / lmDeaths) * 100) / 100 : null,
+        }
+      : null;
 
     return {
       kills, deaths,
@@ -481,9 +678,22 @@ export const Steam = {
       mvps: get('total_mvps'),
       timePlayedHours: Math.round(get('total_time_played') / 3600),
       // Guard every divisor — a fresh account has zeroes everywhere.
-      accuracy: shots > 0 ? Math.round((hits / shots) * 1000) / 10 : null,
+      accuracy: pct(hits, shots),
       kd: deaths > 0 ? Math.round((kills / deaths) * 100) / 100 : null,
-      hsPercent: kills > 0 ? Math.round((headshots / kills) * 1000) / 10 : null,
+      hsPercent: pct(headshots, kills),
+      matchesPlayed, matchesWon,
+      matchWinRate: pct(matchesWon, matchesPlayed),
+      bombsPlanted: get('total_planted_bombs'),
+      bombsDefused: get('total_defused_bombs'),
+      hostagesRescued: get('total_rescued_hostages'),
+      knifeKills: get('total_kills_knife'),
+      grenadeKills: get('total_kills_hegrenade'),
+      molotovKills: get('total_kills_molotov'),
+      zoomedSniperKills: get('total_kills_enemy_weapon'),
+      dominations: get('total_dominations'),
+      revenges: get('total_revenges'),
+      moneyEarned: get('total_money_earned'),
+      topWeapons, mapStats, lastMatch,
     };
   },
 };
