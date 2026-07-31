@@ -9,7 +9,8 @@
     "deploy": "tsx deploy-commands.ts global",
     "deploy:guild": "tsx deploy-commands.ts guild",
     "deploy:clear-guild": "tsx deploy-commands.ts clear-guild",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:gifs": "tsx scripts/test-gifs.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",
