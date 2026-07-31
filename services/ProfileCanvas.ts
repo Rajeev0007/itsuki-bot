@@ -10,6 +10,7 @@ const { createCanvas, loadImage } = require('canvas') as {
 };
 import https from 'https';
 import http from 'http';
+import { drawText, preloadEmoji, collectStrings } from './canvas/EmojiText';
 
 interface Canvas {
   getContext: (type: '2d') => CanvasRenderingContext2D;
@@ -96,6 +97,10 @@ export interface ProfileOptions {
 }
 
 export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
+  // Emoji must be fetched before drawing, because the draw helpers are
+  // synchronous. Collected generically from the options so adding a field later
+  // cannot silently leave its emoji unrendered.
+  await preloadEmoji(...collectStrings(opts));
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
@@ -152,7 +157,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     ctx.font = 'bold 40px Sans';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText((opts.username[0] ?? '?').toUpperCase(), AX, AY);
+    drawText(ctx, (opts.username[0] ?? '?').toUpperCase(), AX, AY);
   }
 
   if (opts.prestige > 0) {
@@ -165,7 +170,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     ctx.font = 'bold 11px Sans';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`P${opts.prestige}`, bx, by);
+    drawText(ctx, `P${opts.prestige}`, bx, by);
   }
 
   /* Right panel */
@@ -176,7 +181,7 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.font = 'bold 28px Sans';
   ctx.fillStyle = COLORS.text;
   ctx.textBaseline = 'top';
-  ctx.fillText(opts.username, RX, cy);
+  drawText(ctx, opts.username, RX, cy);
 
   const lvlLabel = `LVL ${opts.level}`;
   ctx.font = 'bold 14px Sans';
@@ -186,12 +191,12 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.fillStyle = COLORS.accentGlow;
   ctx.fill();
   ctx.fillStyle = COLORS.accent;
-  ctx.fillText(lvlLabel, lvlX + 10, cy + 6);
+  drawText(ctx, lvlLabel, lvlX + 10, cy + 6);
   cy += 36;
 
   ctx.font = '16px Sans';
   ctx.fillStyle = COLORS.textMuted;
-  ctx.fillText(opts.title || 'Newcomer', RX, cy);
+  drawText(ctx, opts.title || 'Newcomer', RX, cy);
   cy += 26;
 
   /* XP bar */
@@ -213,9 +218,9 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
 
   ctx.font = '13px Sans';
   ctx.fillStyle = COLORS.textDim;
-  ctx.fillText(`${fmtNum(opts.xp)} / ${fmtNum(opts.xpNeeded)} XP`, barX, cy);
+  drawText(ctx, `${fmtNum(opts.xp)} / ${fmtNum(opts.xpNeeded)} XP`, barX, cy);
   const pctLabel = `${Math.round(ratio * 100)}%`;
-  ctx.fillText(pctLabel, W - ctx.measureText(pctLabel).width - 24, cy);
+  drawText(ctx, pctLabel, W - ctx.measureText(pctLabel).width - 24, cy);
   cy += 26;
 
   /* Stats row */
@@ -231,10 +236,10 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
     if (i > 0) { ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(sx, cy, 1, 52); }
     ctx.font = '13px Sans';
     ctx.fillStyle = COLORS.textMuted;
-    ctx.fillText(s.label, sx + (i === 0 ? 0 : 12), cy + 4);
+    drawText(ctx, s.label, sx + (i === 0 ? 0 : 12), cy + 4);
     ctx.font = 'bold 18px Sans';
     ctx.fillStyle = COLORS.stat;
-    ctx.fillText(s.value, sx + (i === 0 ? 0 : 12), cy + 24);
+    drawText(ctx, s.value, sx + (i === 0 ? 0 : 12), cy + 24);
   });
 
   /* Footer */
@@ -245,10 +250,10 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   ctx.fillStyle = COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`Member since ${memberDate}`, W - 18, H - 12);
+  drawText(ctx, `Member since ${memberDate}`, W - 18, H - 12);
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(88,101,242,0.35)';
-  ctx.fillText('Economy Bot', 18, H - 12);
+  drawText(ctx, 'Economy Bot', 18, H - 12);
 
   return canvas.toBuffer('image/png');
 }

@@ -285,7 +285,12 @@ const config = {
      * Fail fast on a dead server instead of letting every command hang for the
      * driver's 30s default.
      */
-    serverSelectionTimeoutMS: Number(process.env.MONGO_TIMEOUT_MS ?? 8000),
+    serverSelectionTimeoutMS: (() => {
+      // An empty or non-numeric value would become NaN, which the driver reads
+      // as 0 and then fails every server selection immediately.
+      const parsed = Number(process.env.MONGO_TIMEOUT_MS);
+      return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 8000;
+    })(),
   },
 };
 

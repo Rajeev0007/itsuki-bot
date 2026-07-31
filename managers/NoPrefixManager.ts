@@ -96,7 +96,7 @@ class NoPrefixManager {
     } catch (err) {
       // The cache stays empty, so no-prefix simply does not apply. Loud on
       // purpose: silently dropping everyone's perk is very hard to diagnose.
-      logger.error('[NoPrefix] Failed to load noprefix.json — no-prefix is INACTIVE this session:', (err as Error).message);
+      logger.error('[NoPrefix] Failed to load the noprefix store — no-prefix is INACTIVE this session:', (err as Error).message);
     }
   }
 
@@ -174,7 +174,7 @@ class NoPrefixManager {
       // the grant disappeared on the next restart.
       if (previous) this._cache.set(userId, previous);
       else this._cache.delete(userId);
-      return { ok: false, reason: `Could not save to disk: ${(err as Error).message}` };
+      return { ok: false, reason: `Could not update storage: ${(err as Error).message}` };
     }
 
     return { ok: true, entry, extended: Boolean(existing) };
@@ -193,11 +193,16 @@ class NoPrefixManager {
     }
     if (!inCache && !onDisk) return { ok: false, reason: 'not-listed' };
 
+    const previous = this._cache.get(userId);
     this._cache.delete(userId);
     try {
       await this._db.delete(userId);
     } catch (err) {
-      if (inCache) return { ok: false, reason: `Could not save to disk: ${(err as Error).message}` };
+      // Put it back: otherwise the entry is gone from memory but still stored,
+      // so the perk silently returns on the next restart while the command
+      // reported a failure.
+      if (previous) this._cache.set(userId, previous);
+      return { ok: false, reason: `Could not update storage: ${(err as Error).message}` };
     }
     return { ok: true };
   }
