@@ -24,7 +24,7 @@ const guildsDB = getStore('guilds');
 const CATEGORIES: Record<string, { label: string; desc: string; color: number; commands: string[] }> = {
   economy:     { label: 'Economy',     desc: 'Earn, spend, and manage your coins',               color: config.colors.gold,    commands: ['balance','daily','weekly','work','crime','rob','beg','search','deposit','withdraw','transfer','prestige','richest'] },
   gambling:    { label: 'Gambling',    desc: 'Risk your coins for big rewards',                   color: config.colors.danger,  commands: ['slots','blackjack','coinflip','dice','roulette','crash','mines'] },
-  games:       { label: 'Games',       desc: 'Play against friends or the bot for fun and coins', color: config.colors.teal,    commands: ['tictactoe','rps','trivia'] },
+  games:       { label: 'Games',       desc: 'Play against friends or the bot for fun and coins', color: config.colors.teal,    commands: ['akinator','hangman','connect4','tictactoe','rps','trivia'] },
   social:      { label: 'Social',      desc: 'Interact and emote with other users',               color: config.colors.social,  commands: ['hug','kiss','pat','slap','cuddle','bonk','wave','dance','cry','poke'] },
   anime:       { label: 'Anime',       desc: 'Anime images and character search',                 color: config.colors.anime,   commands: ['anime','waifu'] },
   music:       { label: 'Music',       desc: 'Play music in voice channels',                      color: config.colors.purple,  commands: ['play','queue','skip','stop','leave','pause','resume','loop','nowplaying','seek','shuffle','volume','247','autoplay','setvoice'] },
@@ -62,6 +62,8 @@ const SERVER_ONLY = new Set([
   'slowmode', 'lock', 'modlog',
   // Activity is tracked per server.
   'userstats',
+  // Needs a second human player.
+  'connect4',
 ]);
 
 /** Lists a category's server-only commands, for the DM notice. */
