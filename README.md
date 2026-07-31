@@ -181,6 +181,27 @@ pm2 save && pm2 startup
 > ⚠️ **Architecture note:** The music engine (`lavende`) ships x86-64 binaries only.
 > Use an **x86-64 / amd64** server. Check with `uname -m` — must output `x86_64`.
 
+### Pterodactyl / Pelican game panels
+
+The stock Node.js egg ends its startup command with:
+
+```bash
+if [[ "${MAIN_FILE}" == "*.js" ]]; then node "/home/container/${MAIN_FILE}";
+else ts-node "/home/container/${MAIN_FILE}"; fi
+```
+
+That comparison quotes the pattern, so it is a literal string test and never
+matches — **every** value of `MAIN_FILE` falls through to `ts-node`, which
+cannot run this project (see Troubleshooting). Replace the startup command with:
+
+```bash
+if [ -f /home/container/package.json ]; then npm install; fi; npm start
+```
+
+`MAIN_FILE` is then unused. Set `AUTO_UPDATE=1` if you want the panel to
+`git pull` on boot — note it pulls the **checked-out branch**, so make sure the
+branch you deploy from is the one that is checked out in `/home/container`.
+
 ### Railway / Render / Fly.io
 
 1. Fork this repo and connect it in the platform dashboard
@@ -200,17 +221,30 @@ pm2 save && pm2 startup
 ## Troubleshooting
 
 **`npm error code ERESOLVE` mentioning `opusscript`**
-`prism-media` accepts `opusscript@^0.0.8` only. The manifest pins that exact
-range, so a plain `npm install` resolves. If a future dependency bump
-reintroduces a peer conflict, `npm install --legacy-peer-deps` unblocks it, but
-prefer correcting the version — `--legacy-peer-deps` accepts a resolution npm
-knows is wrong.
+Read the version npm reports as "from the root project". If it says
+`opusscript@"^0.1.1"`, the deployed `package.json` is out of date — the fix is
+to get the current one onto the host, not to change anything else. This repo
+pins `^0.0.8`, which is the only range `prism-media@1.3.5` accepts (for `0.x`
+versions `^0.0.8` means `>=0.0.8 <0.0.9`, so `0.1.1` can never satisfy it).
+
+`.npmrc` also sets `legacy-peer-deps=true`, because every peer dependency here
+is an *optional* voice codec and npm should not fail the whole install over
+one. A bare `npm install` picks that up automatically.
 
 **`TypeError: Cannot read properties of undefined (reading 'fileExists')`**
-Something is starting the bot with **ts-node**. This project does not use
-ts-node; a global ts-node cannot resolve the project's TypeScript and fails
-this way. Set the start command to `npm start` (which runs `node start.js` and
-loads `tsx`).
+Something is starting the bot with **ts-node**, and it is a *globally
+installed* one (`/usr/local/lib/node_modules/ts-node`). Node resolves a global
+package's own imports from the global tree, never from
+`/home/container/node_modules`, so that ts-node cannot see this project's
+`typescript` and crashes before it reads a single file. Installing typescript
+locally does not help.
+
+This project does not use ts-node at all — `start.js` loads `tsx`. Fix the
+startup command, not the dependencies:
+
+```bash
+npm start
+```
 
 **`Cannot find module 'tsx/cjs'`**
 Dependencies are not installed. Run `npm install`.
