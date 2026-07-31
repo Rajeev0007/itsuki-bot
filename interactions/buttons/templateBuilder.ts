@@ -13,8 +13,9 @@ import {
 } from 'discord.js';
 import {
   getSession, buildModal, refresh, commitSession, closeSession,
+  syncPreview, discardPreview,
 } from '../../services/TemplateBuilderUI';
-import { renderTemplate, emptyTemplate } from '../../services/MessageTemplate';
+import { emptyTemplate } from '../../services/MessageTemplate';
 import * as CB from '../../builders/ComponentBuilder';
 import logger from '../../utils/Logger';
 
@@ -49,27 +50,22 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     return;
   }
 
-  // ── Preview ─────────────────────────────────────────────────────────────
-  // Sent as a separate ephemeral message: the panel itself is a V2 message and
-  // V2 forbids embeds, so an embed-style preview cannot be shown inside it.
+  // ── Live preview toggle ─────────────────────────────────────────────────
+  if (action === 'tb_live') {
+    session.livePreview = !session.livePreview;
+    // Turning it off removes the tracked preview so no stale copy is left
+    // behind claiming to be current.
+    if (!session.livePreview) await discardPreview(interaction, session);
+    await refresh(interaction, session);
+    return;
+  }
+
+  // ── Re-post the preview ─────────────────────────────────────────────────
+  // Posts it again at the bottom rather than editing in place, so it is
+  // findable after being dismissed or scrolled past.
   if (action === 'tb_preview') {
-    try {
-      const payload = renderTemplate(session.template, {
-        member: interaction.guild?.members.cache.get(interaction.user.id) ?? null,
-        user: interaction.user,
-        guild: interaction.guild ?? null,
-      });
-      // A fresh reply rather than an edit of the panel: the panel is a V2
-      // message and V2 forbids embeds. The V2 flag itself is added by the
-      // reply patch when the payload actually carries V2 components.
-      await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral } as never);
-    } catch (err) {
-      logger.debug(`[Builder] Preview failed: ${(err as Error).message}`);
-      await interaction.reply({
-        content: `That template can't be rendered yet: ${(err as Error).message}`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
+    await interaction.deferUpdate();
+    await syncPreview(interaction, session, { force: true });
     return;
   }
 
@@ -103,6 +99,9 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
 
   // ── Close ───────────────────────────────────────────────────────────────
   if (action === 'tb_close') {
+    // Tidy the preview away before the session is dropped — afterwards we no
+    // longer know which message to remove.
+    await discardPreview(interaction, session);
     closeSession(sid);
     await interaction.update({
       components: [new ContainerBuilder().addTextDisplayComponents(
@@ -121,7 +120,10 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     await interaction.deferUpdate();
     try {
       const result = await commitSession(session, interaction);
-      if (result.ok) closeSession(sid);
+      if (result.ok) {
+        await discardPreview(interaction, session);
+        closeSession(sid);
+      }
       await interaction.editReply({
         ...(result.ok
           ? CB.successResponse(result.title, result.message)

@@ -364,6 +364,20 @@ export function renderTemplate(tpl: MessageTemplate, ctx: PlaceholderContext): R
   return safe.style === 'v2' ? renderV2(safe, ctx) : renderEmbed(safe, ctx);
 }
 
+/**
+ * Marks a rendered payload ephemeral without discarding flags the renderer
+ * already set.
+ *
+ * `{ ...payload, flags: Ephemeral }` looks equivalent but silently drops
+ * IS_COMPONENTS_V2 from a V2 render, and Discord then rejects the message
+ * because its container components no longer match the flags in the request
+ * body. Only the reply patch in utils/V2Flag.ts was papering over that.
+ */
+export function asEphemeral(payload: Record<string, unknown>): Record<string, unknown> {
+  const existing = typeof payload.flags === 'number' ? payload.flags : 0;
+  return { ...payload, flags: existing | Number(MessageFlags.Ephemeral) };
+}
+
 /** True when a template would produce a visible message. */
 export function isRenderable(tpl: MessageTemplate): boolean {
   return Boolean(

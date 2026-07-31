@@ -23,8 +23,8 @@ import {
 } from 'discord.js';
 import { randomBytes } from 'node:crypto';
 import {
-  emptyTemplate, renderTemplate, describeTemplate, isRenderable,
-  type MessageTemplate,
+  emptyTemplate, renderTemplate, describeTemplate, isRenderable, asEphemeral,
+  type MessageTemplate, type TemplateStyle,
 } from './MessageTemplate';
 import WelcomerManager, { type WelcomerEvent } from '../managers/WelcomerManager';
 import { getStore } from '../database/JsonStore';
@@ -38,11 +38,22 @@ export interface BuilderSession {
   sid: string;
   ownerId: string;
   /** Where a save goes. One of:
-   *   `welcomer:welcome` | `welcomer:goodbye` | `msg:<name>` | `send:<channelId>` */
+   *   `welcomer:welcome` | `welcomer:goodbye` | `wdm:welcome`
+   *   | `msg:<name>` | `send:<channelId>` */
   target: string;
   guildId: string | null;
   template: MessageTemplate;
   expiresAt: number;
+  /** Whether a companion message mirrors the template after every edit. */
+  livePreview: boolean;
+  /** Id of that companion message, if one is currently on screen. */
+  previewMessageId: string | null;
+  /**
+   * The style the preview message was CREATED with. A message's
+   * IS_COMPONENTS_V2 flag cannot be changed after creation, so when this stops
+   * matching the template the preview has to be replaced rather than edited.
+   */
+  previewStyle: TemplateStyle | null;
 }
 
 const sessions = new Map<string, BuilderSession>();
@@ -84,6 +95,10 @@ function createSession(ownerId: string, target: string, guildId: string | null, 
     sid, ownerId, target, guildId,
     template: { ...emptyTemplate(template?.style ?? 'embed'), ...(template ?? {}) },
     expiresAt: Date.now() + SESSION_TTL_MS,
+    // On by default: seeing the result is the whole point of a builder.
+    livePreview: true,
+    previewMessageId: null,
+    previewStyle: null,
   };
   sessions.set(sid, session);
   return session;
@@ -189,12 +204,17 @@ export function buildPayload(session: BuilderSession): Record<string, unknown> {
     ),
   );
 
+  const renderable = isRenderable(tpl);
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`tb_preview:${sid}`).setLabel('Preview').setEmoji('👁️').setStyle(ButtonStyle.Secondary)
-        .setDisabled(!isRenderable(tpl)),
+      new ButtonBuilder().setCustomId(`tb_live:${sid}`)
+        .setLabel(`Live preview: ${session.livePreview ? 'on' : 'off'}`).setEmoji('👁️')
+        // Green while on, so the state is readable at a glance.
+        .setStyle(session.livePreview ? ButtonStyle.Success : ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`tb_preview:${sid}`).setLabel('Re-post').setEmoji('🔄').setStyle(ButtonStyle.Secondary)
+        .setDisabled(!renderable),
       new ButtonBuilder().setCustomId(`tb_save:${sid}`).setLabel(saveVerb(session.target)).setEmoji('💾').setStyle(ButtonStyle.Success)
-        .setDisabled(!isRenderable(tpl)),
+        .setDisabled(!renderable),
       new ButtonBuilder().setCustomId(`tb_close:${sid}`).setLabel('Close').setEmoji('✖️').setStyle(ButtonStyle.Secondary),
     ),
   );
@@ -232,6 +252,9 @@ export function buildPayload(session: BuilderSession): Record<string, unknown> {
 
   container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+      session.livePreview
+        ? '-# 👁️ The message **below this panel** updates on every change — only you can see it.'
+        : '-# 👁️ Live preview is off. Use **Re-post** for a one-off snapshot.',
       '-# Placeholders like `{user}`, `{server}` and `{server.ordinal}` work in every text field.',
       `-# Leave a modal field **empty to clear** it. Nothing is stored until you press **${saveVerb(session.target)}**.`,
     ].join('\n')));
@@ -245,11 +268,15 @@ export async function openBuilder(
   opts: { target: string; template: MessageTemplate; ownerId: string },
 ): Promise<unknown> {
   const session = createSession(opts.ownerId, opts.target, interaction.guildId ?? null, opts.template);
-  return interaction.editReply(buildPayload(session) as never);
+  const result = await interaction.editReply(buildPayload(session) as never);
+  // Show the starting point straight away when there is already content —
+  // editing an existing template should not require a button press to see it.
+  await syncPreview(interaction, session);
+  return result;
 }
 
 /**
- * Redraws the panel in place after an edit.
+ * Redraws the panel in place after an edit, then syncs the live preview.
  *
  * Uses deferUpdate + editReply rather than update() so the same path works for
  * buttons, select menus and modal submissions — `update()` is only present on
@@ -264,6 +291,135 @@ export async function refresh(
     await (interaction as unknown as { deferUpdate: () => Promise<unknown> }).deferUpdate();
   }
   await interaction.editReply(buildPayload(session) as never);
+  // Deliberately after the panel: a preview failure must never stop the panel
+  // from reflecting the edit the user just made.
+  await syncPreview(interaction, session);
+}
+
+// ── Live preview ─────────────────────────────────────────────────────────────
+
+/** The slice of an interaction the preview needs. */
+interface PreviewHost {
+  user: { id: string };
+  guild?: { members?: { cache?: { get?: (id: string) => unknown } } } | null;
+  webhook: {
+    editMessage: (id: string, payload: unknown) => Promise<unknown>;
+    deleteMessage: (id: string) => Promise<unknown>;
+  };
+  followUp: (payload: unknown) => Promise<{ id?: string }>;
+}
+
+type AnyBuilderInteraction =
+  | ChatInputCommandInteraction | ButtonInteraction
+  | StringSelectMenuInteraction | ModalSubmitInteraction;
+
+/**
+ * Builds an EDIT payload.
+ *
+ * Editing differs from sending: `renderTemplate` omits keys it has no value
+ * for, and an omitted key on an edit leaves the old value in place. So removing
+ * the last button or clearing the text would appear to do nothing. Empties must
+ * therefore be sent explicitly.
+ *
+ * The IS_COMPONENTS_V2 flag is re-sent because Discord validates component
+ * types against the flag in the REQUEST BODY, not the flag already on the
+ * message (see utils/V2Flag.ts).
+ */
+function previewEditPayload(payload: Record<string, unknown>, style: TemplateStyle): Record<string, unknown> {
+  if (style === 'v2') {
+    // A V2 message may not carry content or embeds at all — not even empty
+    // ones — so only components are sent.
+    return { components: payload.components ?? [], flags: payload.flags };
+  }
+  return {
+    content: (payload.content as string) ?? '',
+    embeds: payload.embeds ?? [],
+    components: payload.components ?? [],
+  };
+}
+
+/** Removes the companion preview message, if any. */
+export async function discardPreview(
+  interaction: AnyBuilderInteraction,
+  session: BuilderSession,
+): Promise<void> {
+  const id = session.previewMessageId;
+  if (!id) return;
+  // Cleared first so a failed delete cannot leave us retrying forever.
+  session.previewMessageId = null;
+  session.previewStyle = null;
+  await (interaction as unknown as PreviewHost).webhook.deleteMessage(id).catch(() => null);
+}
+
+/**
+ * Mirrors the current template into a companion message.
+ *
+ * It has to be a separate message: the panel is flagged IS_COMPONENTS_V2 and a
+ * V2 message cannot contain embeds, so an embed-style preview could never be
+ * rendered inside the panel itself.
+ *
+ * `force` re-posts the preview at the bottom of the channel instead of editing
+ * it in place — used by the manual refresh button, for when the user has
+ * dismissed it or scrolled past it.
+ */
+export async function syncPreview(
+  interaction: AnyBuilderInteraction,
+  session: BuilderSession,
+  opts: { force?: boolean } = {},
+): Promise<void> {
+  const host = interaction as unknown as PreviewHost;
+  const tpl = session.template;
+
+  try {
+    // Nothing renderable: drop any existing preview rather than leaving a stale
+    // one that no longer matches the panel.
+    if (!isRenderable(tpl)) {
+      await discardPreview(interaction, session);
+      return;
+    }
+
+    const payload = renderTemplate(tpl, {
+      member: (host.guild?.members?.cache?.get?.(host.user.id) ?? null) as never,
+      user: interaction.user as never,
+      guild: (interaction.guild ?? null) as never,
+    }) as Record<string, unknown>;
+
+    // Live preview off: the manual button still shows a one-off, but it is not
+    // tracked, so later edits leave it alone instead of silently rewriting a
+    // message the user asked for as a snapshot.
+    if (!session.livePreview) {
+      if (opts.force) {
+        await host.followUp(asEphemeral(payload));
+      }
+      return;
+    }
+
+    // A style switch changes the message's flags, which cannot be edited — the
+    // old preview must be thrown away and a new message posted.
+    const styleChanged = session.previewStyle !== null && session.previewStyle !== tpl.style;
+    if (opts.force || styleChanged) await discardPreview(interaction, session);
+
+    if (session.previewMessageId) {
+      try {
+        await host.webhook.editMessage(session.previewMessageId, previewEditPayload(payload, tpl.style));
+        return;
+      } catch (err) {
+        // Usually the user dismissed the ephemeral message. Fall through and
+        // post a fresh one instead of losing the preview for the rest of the
+        // session.
+        logger.debug(`[Builder] Preview edit failed, reposting: ${(err as Error).message}`);
+        session.previewMessageId = null;
+        session.previewStyle = null;
+      }
+    }
+
+    const sent = await host.followUp(asEphemeral(payload));
+    session.previewMessageId = sent?.id ?? null;
+    session.previewStyle = tpl.style;
+  } catch (err) {
+    // The preview is a convenience; never let it break editing.
+    logger.debug(`[Builder] Preview sync failed: ${(err as Error).message}`);
+  }
 }
 
 // ── Modals ───────────────────────────────────────────────────────────────────
@@ -458,4 +614,5 @@ export async function deleteSaved(guildId: string, name: string): Promise<boolea
 export default {
   openBuilder, buildPayload, buildModal, getSession, refresh, commitSession,
   closeSession, parseColor, parseUrlList, loadSaved, listSaved, deleteSaved,
+  syncPreview, discardPreview,
 };

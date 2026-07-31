@@ -6,7 +6,7 @@ import {
 import { Command } from '../../structures/Command';
 import WelcomerManager, { type WelcomerEvent } from '../../managers/WelcomerManager';
 import {
-  renderTemplate, describeTemplate, isRenderable, PLACEHOLDERS,
+  renderTemplate, describeTemplate, isRenderable, asEphemeral, PLACEHOLDERS,
   type TemplateStyle,
 } from '../../services/MessageTemplate';
 import { openBuilder } from '../../services/TemplateBuilderUI';
@@ -285,7 +285,7 @@ export default new Command({
       // Delivered as a separate message: this reply was deferred with the V2
       // flag, and a V2 message may not contain embeds — so an embed-style
       // preview cannot be edited into it.
-      return interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral } as never);
+      return interaction.followUp(asEphemeral(payload) as never);
     }
 
     // ── builder ─────────────────────────────────────────────────────────────
@@ -339,6 +339,6 @@ export default new Command({
     const preview = renderTemplate(template, {
       member: interaction.member as GuildMember, user: interaction.user, guild,
     });
-    return interaction.followUp({ ...preview, flags: MessageFlags.Ephemeral } as never);
+    return interaction.followUp(asEphemeral(preview) as never);
   },
 });
