@@ -33,6 +33,18 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     if (!interaction.guild) return interaction.editReply({ ...CB.errorResponse('Server Only', 'Use in a server.') } as never);
     const sub = (interaction.options as { getSubcommand: () => string }).getSubcommand();
+    // Prefix users aren't restricted to the slash subcommand choices, so an
+    // unrecognised value has to be rejected explicitly. Without this the
+    // command fell through every branch and returned without ever editing its
+    // deferred reply, leaving the message stuck on the loading placeholder.
+    const SUBCOMMANDS = ['view', 'nickname', 'avatar', 'banner', 'about', 'reset'];
+    if (!SUBCOMMANDS.includes(sub)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Unknown Subcommand',
+        `\`${sub}\` isn't valid here. Use one of: ${SUBCOMMANDS.map((s) => `\`${s}\``).join(', ')}.`,
+      ) } as never);
+    }
+
     const guildId = interaction.guild.id;
     const branding = (await guildsDB.ensure(`${guildId}.branding`, { nickname: null, avatarUrl: null, bannerUrl: null, about: null })) as Record<string, string | null>;
     const botUser = interaction.client.user!;

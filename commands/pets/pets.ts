@@ -34,6 +34,18 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const sub = (interaction.options as { getSubcommand: () => string }).getSubcommand();
+    // Prefix users aren't restricted to the slash subcommand choices, so an
+    // unrecognised value has to be rejected explicitly. Without this the
+    // command fell through every branch and returned without ever editing its
+    // deferred reply, leaving the message stuck on the loading placeholder.
+    const SUBCOMMANDS = ['adopt', 'view', 'feed', 'play', 'train'];
+    if (!SUBCOMMANDS.includes(sub)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Unknown Subcommand',
+        `\`${sub}\` isn't valid here. Use one of: ${SUBCOMMANDS.map((s) => `\`${s}\``).join(', ')}.`,
+      ) } as never);
+    }
+
     const av  = interaction.user.displayAvatarURL({ size: 256 });
 
     if (sub === 'adopt') {

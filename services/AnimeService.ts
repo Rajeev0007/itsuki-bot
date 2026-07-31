@@ -11,6 +11,20 @@ import config from '../config/config';
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
 const WAIFU_BASE = 'https://api.waifu.pics/sfw';
 
+/**
+ * SFW categories waifu.pics serves.
+ *
+ * Exported so the /waifu command builds its choices from the same list the
+ * service validates against — the two used to be maintained separately, which
+ * is exactly how a command ends up offering a category the API rejects.
+ */
+export const WAIFU_CATEGORIES = [
+  'waifu', 'neko', 'shinobu', 'megumin', 'bully', 'cuddle', 'cry', 'hug',
+  'awoo', 'kiss', 'lick', 'pat', 'smug', 'bonk', 'yeet', 'blush', 'smile',
+  'wave', 'highfive', 'handhold', 'nom', 'bite', 'glomp', 'slap', 'happy',
+  'wink', 'poke', 'dance', 'cringe',
+] as const;
+
 // See GifService.ts — same UA-based blocking issue affects these hosts too.
 const http = axios.create({
   headers: {
@@ -78,10 +92,13 @@ const AnimeService = {
     } catch { return []; }
   },
 
+  /** True when waifu.pics actually serves this category. */
+  isValidWaifuCategory(type: string): boolean {
+    return (WAIFU_CATEGORIES as readonly string[]).includes(type);
+  },
+
   async getWaifuImage(type = 'waifu'): Promise<string | null> {
-    const validTypes = ['waifu','neko','shinobu','megumin','bully','cuddle','cry','hug','awoo',
-      'kiss','lick','pat','smug','bonk','yeet','blush','smile','wave','highfive','dance'];
-    const t = validTypes.includes(type) ? type : 'waifu';
+    const t = this.isValidWaifuCategory(type) ? type : 'waifu';
     try {
       const res = await http.get<{ url: string }>(`${WAIFU_BASE}/${t}`, { timeout: 5000 });
       return res.data?.url ?? null;

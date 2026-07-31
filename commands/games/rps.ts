@@ -11,6 +11,7 @@ import {
   ButtonStyle, type ChatInputCommandInteraction, type ButtonInteraction,
 } from 'discord.js';
 import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
 import * as CB      from '../../builders/ComponentBuilder';
 
 type Choice = 'rock' | 'paper' | 'scissors';
@@ -102,6 +103,11 @@ export default new Command({
           ? "**It's a draw!**"
           : result === 'p1' ? `**${p1Name} wins!**` : '**The bot wins!**';
 
+        // rps previously recorded nothing at all, so it never contributed to
+        // stats, the leaderboard or achievements.
+        await UserManager.incrementStat(p1Id, 'gamesPlayed');
+        if (result === 'p1') await UserManager.incrementStat(p1Id, 'gamesWon');
+
         await i.update({
           components: [
             new ContainerBuilder()
@@ -144,6 +150,11 @@ export default new Command({
         const status = result === 'draw'
           ? "**It's a draw!**"
           : result === 'p1' ? `**${p1Name} wins!**` : `**${p2Name} wins!**`;
+
+        await UserManager.incrementStat(p1Id, 'gamesPlayed');
+        await UserManager.incrementStat(p2Id, 'gamesPlayed');
+        if (result === 'p1')      await UserManager.incrementStat(p1Id, 'gamesWon');
+        else if (result === 'p2') await UserManager.incrementStat(p2Id, 'gamesWon');
 
         await interaction.editReply({
           components: [

@@ -164,6 +164,16 @@ export default new Event({
     try {
       logger.command(command.name, cmdInteraction.user.tag, guild?.name ?? 'DM');
       await command.execute(cmdInteraction, client);
+      // Safety net for a whole class of bug: a command that defers and then
+      // returns down a code path that never sends anything (an unmatched
+      // subcommand branch, say) would otherwise leave the user staring at
+      // "thinking…" until Discord expires it, with nothing in the logs.
+      if (cmdInteraction.deferred && !cmdInteraction.replied) {
+        logger.warn(`[interactionCreate] /${command.name} deferred but never responded — sending a fallback.`);
+        await cmdInteraction.editReply({
+          ...CB.errorResponse('Nothing to Show', 'That command finished without a result. Please check your input and try again.'),
+        } as never).catch(() => {});
+      }
     } catch (err) {
       logger.error(`[interactionCreate] /${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');

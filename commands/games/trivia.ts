@@ -80,7 +80,16 @@ export default new Command({
       const chosen = q.answers[chosenIdx];
       const correct = chosen === q.correctAnswer;
 
-      if (correct) await UserManager.addWallet(interaction.user.id, reward);
+      // Trivia recorded nothing at all — no games played, no games won, no
+      // transaction — so it never counted toward stats or achievements the way
+      // every other game does.
+      await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
+      if (correct) {
+        await UserManager.incrementStat(interaction.user.id, 'gamesWon');
+        await UserManager.addWallet(interaction.user.id, reward);
+        await UserManager.recordTransaction(interaction.user.id, 'trivia', reward, `Trivia — ${q.category}`);
+        await UserManager.checkAchievements(interaction.user.id);
+      }
 
       const status = correct
         ? `**Correct!** You earned ${fmt.coins(reward)}.`
@@ -99,6 +108,8 @@ export default new Command({
 
     (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void }).on('end', (_c, reason) => {
       if (reason === 'time') {
+        // An unanswered question still counts as a game played.
+        void UserManager.incrementStat(interaction.user.id, 'gamesPlayed').catch(() => {});
         interaction.editReply({
           components: [
             new ContainerBuilder()

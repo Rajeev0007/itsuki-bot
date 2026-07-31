@@ -177,6 +177,14 @@ export default new Event({
     try {
       logger.command(command.name, message.author.tag, message.guild?.name ?? 'DM');
       await command.execute(adapter as never, client);
+      // Same safety net as the slash router: never leave a deferred prefix
+      // command sitting on its "Working…" placeholder with no result.
+      if (adapter.deferred && !adapter.replied) {
+        logger.warn(`[Prefix] ${command.name} deferred but never responded — sending a fallback.`);
+        await adapter.sendError(
+          CB.errorResponse('Nothing to Show', 'That command finished without a result. Please check your input and try again.'),
+        ).catch(() => {});
+      }
     } catch (err) {
       logger.error(`[Prefix] ${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');

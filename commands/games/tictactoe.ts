@@ -11,6 +11,7 @@ import {
   ButtonStyle, type ChatInputCommandInteraction, type ButtonInteraction,
 } from 'discord.js';
 import { Command } from '../../structures/Command';
+import UserManager from '../../managers/UserManager';
 import * as CB      from '../../builders/ComponentBuilder';
 
 const X = '❌';
@@ -106,6 +107,9 @@ export default new Command({
       }
 
       const idx = Number(i.customId.split(':')[2]);
+      // Guard the index itself: a non-numeric segment yields NaN, and
+      // `board[NaN] = mark` would quietly add a junk property to the array.
+      if (!Number.isInteger(idx) || idx < 0 || idx > 8) return;
       if (board[idx]) return; // shouldn't happen (button disabled), guard anyway
 
       const mark = turn === p1.id ? X : O;
@@ -116,6 +120,14 @@ export default new Command({
 
       if (winner || isDraw) {
         (collector as unknown as { stop: () => void }).stop();
+        const winnerId = winner ? (winner === X ? p1.id : p2.id) : null;
+
+        // Neither player was credited with anything before — tic-tac-toe kept
+        // no record of games played or won.
+        await UserManager.incrementStat(p1.id, 'gamesPlayed');
+        await UserManager.incrementStat(p2.id, 'gamesPlayed');
+        if (winnerId) await UserManager.incrementStat(winnerId, 'gamesWon');
+
         const status = winner
           ? `**${winner === X ? p1.username : p2.username}** wins! (${winner})`
           : "**It's a draw!**";

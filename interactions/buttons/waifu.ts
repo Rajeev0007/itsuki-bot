@@ -10,12 +10,16 @@ import * as CB       from '../../builders/ComponentBuilder';
 export const customId = 'waifu_reroll:*';
 
 export async function execute(interaction: ButtonInteraction): Promise<void> {
-  const [, ownerId, category] = interaction.customId.split(':');
+  const [, ownerId, rawCategory] = interaction.customId.split(':');
 
   if (ownerId !== interaction.user.id) {
     await interaction.reply({ content: 'This button is not for you.', flags: MessageFlags.Ephemeral });
     return;
   }
+
+  // A malformed/legacy customId leaves this undefined, and `category.charAt(0)`
+  // below would throw. Fall back to the default category instead.
+  const category = rawCategory && AnimeService.isValidWaifuCategory(rawCategory) ? rawCategory : 'waifu';
 
   await interaction.deferUpdate();
 
