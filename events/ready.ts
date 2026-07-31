@@ -40,7 +40,7 @@ export default new Event({
     // backup pass and then dutifully back them up forever.
     const STORES = [
       'users', 'economy', 'inventory', 'pets', 'gambling',
-      'guilds', 'social', 'actions', 'profiles',
+      'guilds', 'social', 'actions', 'profiles', 'moderation',
     ];
     setInterval(async () => {
       for (const name of STORES) {
