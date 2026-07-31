@@ -11,7 +11,7 @@ import fmt from '../../utils/Formatter';
 import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 import { SUITS, CARD_VALUES } from '../../utils/Constants';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 
 const gamblingDB = getStore('gambling');
 const COLLECTOR_MS = 60_000;

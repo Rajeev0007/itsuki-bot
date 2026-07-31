@@ -14,7 +14,7 @@ import {
 import { buildPanel, type PanelView } from '../../commands/owner/panel';
 import PresenceManager from '../../managers/PresenceManager';
 import MaintenanceManager from '../../managers/MaintenanceManager';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 import config from '../../config/config';
 import logger from '../../utils/Logger';
 

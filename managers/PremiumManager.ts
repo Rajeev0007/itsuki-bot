@@ -14,7 +14,7 @@
  * is always correct and needs no scheduling.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import NoPrefixManager from './NoPrefixManager';
 import config from '../config/config';
 import logger from '../utils/Logger';

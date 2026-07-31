@@ -14,7 +14,7 @@
  */
 
 import { randomBytes, createHash } from 'node:crypto';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import PremiumManager, { type PremiumTier } from './PremiumManager';
 import NoPrefixManager from './NoPrefixManager';
 import logger from '../utils/Logger';

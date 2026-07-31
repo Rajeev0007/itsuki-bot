@@ -10,7 +10,7 @@
  * controls live.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger       from '../utils/Logger';
 
 interface MaintenanceState {

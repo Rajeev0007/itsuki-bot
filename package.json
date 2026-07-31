@@ -10,6 +10,7 @@
     "deploy:guild": "tsx deploy-commands.ts guild",
     "deploy:clear-guild": "tsx deploy-commands.ts clear-guild",
     "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate-to-mongo.ts",
     "test:gifs": "tsx scripts/test-gifs.ts"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.5",
     "lavende": "^1.0.2",
+    "mongodb": "^6.10.0",
     "libsodium-wrappers": "^0.7.15",
     "opusscript": "^0.0.8",
     "prism-media": "^1.3.5",

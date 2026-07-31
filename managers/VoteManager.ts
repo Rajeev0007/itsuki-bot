@@ -12,7 +12,7 @@
  * a user who votes and never returns would be messaged every sweep, forever.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger from '../utils/Logger';
 
 const votesDB = getStore('votes');

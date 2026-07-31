@@ -14,7 +14,7 @@
  *     transaction history stay consistent with the rest of the economy.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import UserManager from './UserManager';
 import CardService, { RARITIES, type CardTemplate, type Rarity } from '../services/CardService';
 import config from '../config/config';

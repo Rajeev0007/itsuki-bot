@@ -11,6 +11,7 @@ import { Client, GatewayIntentBits, Partials, Collection } from 'discord.js';
 import config             from './config/config';
 import logger             from './utils/Logger';
 import { autoDeployCommands } from './utils/AutoDeploy';
+import { connect as connectMongo, close as closeMongo } from './database/Mongo';
 import musicManager       from './managers/MusicManager';
 import NoPrefixManager    from './managers/NoPrefixManager';
 import BlacklistManager   from './managers/BlacklistManager';
@@ -69,6 +70,9 @@ process.on('uncaughtException', (err) => {
 const shutdown = async (signal: string) => {
   logger.info(`[Process] Received ${signal} — shutting down gracefully…`);
   client.destroy();
+  // Closing the pool lets in-flight writes finish instead of being cut off
+  // mid-operation.
+  await closeMongo().catch(() => {});
   process.exit(0);
 };
 process.on('SIGINT',  () => shutdown('SIGINT'));
@@ -76,6 +80,17 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
+  // First, and awaited: every manager below reads from the database, and a bad
+  // URI or wrong credentials must stop the bot here rather than surfacing later
+  // as individual commands failing.
+  try {
+    await connectMongo();
+  } catch (err) {
+    logger.error('[Startup] Could not reach MongoDB:', (err as Error).message);
+    logger.error('[Startup] Set MONGO_URI in your .env — see .env.example. Run `npm run migrate` to import existing JSON data.');
+    process.exit(1);
+  }
+
   await NoPrefixManager.ready();
   await BlacklistManager.ready();
   await MaintenanceManager.ready();

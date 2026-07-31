@@ -6,7 +6,7 @@
 import { type Client } from 'discord.js';
 import { Event }   from '../structures/Event';
 import logger      from '../utils/Logger';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import PresenceManager from '../managers/PresenceManager';
 import StatsManager from '../managers/StatsManager';
 import CardManager from '../managers/CardManager';

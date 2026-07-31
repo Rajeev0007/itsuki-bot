@@ -13,7 +13,7 @@ import {
 } from 'discord.js';
 import { Command } from '../../structures/Command';
 import config      from '../../config/config';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 
 const guildsDB = getStore('guilds');
 

@@ -36,6 +36,7 @@
 |---|---|
 | **Node.js** | ≥ 20.18.0 (22 LTS recommended) |
 | **npm** | ≥ 8 |
+| **MongoDB** | ≥ 5.0 — local, Docker or a free Atlas cluster |
 
 > **Linux/Ubuntu** — the `canvas` package needs native libraries:
 > ```bash
@@ -94,6 +95,7 @@ No build step required — TypeScript runs directly via `tsx`.
 |---|---|
 | `npm start` | Start the bot |
 | `npm run dev` | Watch mode — auto-restart on file changes |
+| `npm run migrate` | Dry-run import of legacy `database/*.json` into MongoDB |
 | `npm run deploy` | Register slash commands globally |
 | `npm run deploy:guild` | Register to dev guild instantly |
 | `npm run typecheck` | Type-check without running |
@@ -149,6 +151,69 @@ All bot behaviour lives in **`config/config.ts`**:
 | `pets` | Pet types and base stats |
 | `achievements` | Achievement definitions and coin rewards |
 | `presence` | Bot status and rotating activity messages |
+
+---
+
+## Database
+
+Everything lives in MongoDB. Set `MONGO_URI` and the bot creates what it needs on
+first write — there is no schema step.
+
+```bash
+MONGO_URI=mongodb://127.0.0.1:27017/itsuki          # local
+MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/itsuki   # Atlas
+```
+
+### Layout
+
+One collection per store, one document per top-level key, with the value under
+`v`:
+
+```js
+// getStore('economy').set('123456789.wallet', 500)
+db.economy.findOne({ _id: '123456789' })
+// { _id: '123456789', v: { wallet: 500, bank: 0 } }
+```
+
+So a key path maps to a document id plus a field path — `"123456789.wallet"`
+becomes `_id: "123456789"`, field `v.wallet`. The `v` wrapper looks redundant for
+objects, but top-level values are not always objects (`maintenance` stores a
+boolean, some stores hold arrays) and a document cannot have a bare scalar body.
+One wrapper means scalars, arrays and objects share a single code path.
+
+Query it directly with `v.` prefixes:
+
+```js
+db.economy.find({ 'v.wallet': { $gt: 10000 } })
+```
+
+### Migrating from the old JSON files
+
+```bash
+npm run migrate              # dry run — reports what would happen, writes nothing
+npm run migrate -- --write   # import
+```
+
+Dry run is the default because this touches live data. Re-running is safe:
+existing documents are left alone unless you pass `--force`, so an interrupted
+import can just be run again, and a re-run after people have been playing will
+not roll their progress back.
+
+The script verifies document counts against the JSON keys afterwards and will
+tell you if anything is short. **Only delete `database/*.json` and
+`database/JsonStore.ts` once it reports a clean match** and the bot has started
+and looked correct.
+
+`database/*.json` is now gitignored — data does not belong in version control.
+
+### Why not the old JSON store
+
+It held every collection wholly in memory and rewrote the **entire file** on
+every change through a serialised queue. That is what made it slow under load,
+and an interrupted write could truncate a file. Counters were also read-modify-
+written in JavaScript, so two overlapping payouts could read the same balance and
+one would be silently discarded. Writes now touch a single document, and
+`add()`/`push()` use `$inc`/`$push`, which are atomic server-side.
 
 ---
 
@@ -264,6 +329,12 @@ one, then `npm ci` works on later deploys.
 **`Cannot play audio as no valid encryption package is installed`**
 `libsodium-wrappers` did not install. Re-run `npm install`; it is a pure-JS
 package and needs no build tools.
+
+**`Could not reach MongoDB` on startup**
+`MONGO_URI` is missing or wrong, or the server is unreachable. The bot exits
+rather than starting with no database, because a half-configured bot writes data
+somewhere nobody looks. For Atlas, check that your IP is allow-listed and that
+the password is URL-encoded.
 
 **`canvas` fails to build**
 Install the native libraries listed under [Requirements](#requirements), then

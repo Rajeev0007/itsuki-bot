@@ -13,7 +13,7 @@
  */
 
 import type { Client, Guild } from 'discord.js';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 
 const usersDB = getStore('users');
 

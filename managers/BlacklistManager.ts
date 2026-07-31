@@ -7,7 +7,7 @@
  * lookups are synchronous (O(1)) with zero DB overhead on every message.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger       from '../utils/Logger';
 
 interface BlacklistEntry {

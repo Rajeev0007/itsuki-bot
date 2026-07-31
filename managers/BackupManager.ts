@@ -24,7 +24,7 @@ import {
   ChannelType, PermissionFlagsBits, OverwriteType,
   type Guild, type CategoryChannel, type GuildBasedChannel, type Role,
 } from 'discord.js';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import { addEmoji } from '../services/ExpressionService';
 import logger from '../utils/Logger';
 

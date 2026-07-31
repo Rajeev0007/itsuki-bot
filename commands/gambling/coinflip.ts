@@ -9,7 +9,7 @@ import * as CB from '../../builders/ComponentBuilder';
 import fmt from '../../utils/Formatter';
 import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 
 const gamblingDB = getStore('gambling');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
