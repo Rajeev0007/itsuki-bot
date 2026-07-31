@@ -55,12 +55,28 @@ export class DownloadError extends Error {
   }
 }
 
-/** Media types safe to relay. Deliberately excludes archives and executables. */
+/**
+ * Types safe to relay.
+ *
+ * Deliberately excludes archives (zip/rar/7z) and anything executable. Those
+ * are the formats that turn a relay command into a malware distribution
+ * channel, and Discord cannot preview them either — so there is no upside.
+ */
 const ALLOWED_MIME = [
+  // Images
   'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif',
-  'video/mp4', 'video/webm', 'video/quicktime',
-  'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/flac', 'audio/mp4',
-  'text/plain', 'application/json',
+  'image/svg+xml', 'image/tiff', 'image/x-icon', 'image/vnd.microsoft.icon',
+  // Video
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/mpeg',
+  // Audio
+  'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/wav', 'audio/x-wav',
+  'audio/webm', 'audio/flac', 'audio/mp4', 'audio/aac', 'audio/opus',
+  // Documents and text — non-executable, previewable
+  'text/plain', 'text/markdown', 'text/csv', 'text/xml', 'text/html',
+  'application/json', 'application/pdf', 'application/xml',
+  'application/rtf', 'text/rtf',
+  // Fonts
+  'font/ttf', 'font/otf', 'font/woff', 'font/woff2',
 ];
 
 const ALLOWED_PORTS = new Set([80, 443]);

@@ -37,7 +37,7 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
   stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
   gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',                 color: config.colors.info,    commands: ['minecraft','cs2','valorant'] },
   moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify'] },
-  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','fetchfile','record'] },
+  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','fetchfile','grab','record'] },
 };
 
 const OWNER_CATEGORY = {
@@ -65,6 +65,8 @@ const SERVER_ONLY = new Set([
   'userstats',
   // Needs a voice channel.
   'record',
+  // Reads server emojis, icons and channel messages.
+  'grab',
   // Needs a second human player.
   'connect4',
 ]);
