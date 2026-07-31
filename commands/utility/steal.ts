@@ -91,13 +91,13 @@ export default new Command({
     .setName('steal').setDescription('Copy emojis and stickers into this server.')
     .addSubcommand((s) => s.setName('emoji').setDescription('Steal one or many emojis at once')
       .addStringOption((o) => o.setName('emojis')
-        .setDescription('Paste any number of custom emojis (or IDs)').setRequired(true))
+        .setDescription('Paste any number of custom emojis (or IDs) — or reply to a message instead'))
       .addStringOption((o) => o.setName('name')
         .setDescription('Rename — only applies when stealing a single emoji')))
     .addSubcommand((s) => s.setName('sticker').setDescription('Steal the stickers from a message')
-      .addStringOption((o) => o.setName('link').setDescription('Discord message link').setRequired(true)))
+      .addStringOption((o) => o.setName('link').setDescription('Message link — omit if replying')))
     .addSubcommand((s) => s.setName('message').setDescription('Steal every emoji AND sticker in a message')
-      .addStringOption((o) => o.setName('link').setDescription('Discord message link').setRequired(true)))
+      .addStringOption((o) => o.setName('link').setDescription('Message link — omit if replying')))
     .addSubcommand((s) => s.setName('upload').setDescription('Add an image from a URL')
       .addStringOption((o) => o.setName('url').setDescription('Direct image URL').setRequired(true))
       .addStringOption((o) => o.setName('name').setDescription('Name for it').setRequired(true))
@@ -113,7 +113,32 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 
-    const sub = (interaction.options as { getSubcommand: () => string }).getSubcommand();
+    // Reply-style invocation: `,steal` while replying to a message grabs
+    // everything from that message. Only the prefix adapter can be a reply, so
+    // the capability is feature-detected rather than assumed.
+    const replyTarget = await (interaction as unknown as {
+      fetchReplyTarget?: () => Promise<Message | null>;
+    }).fetchReplyTarget?.().catch(() => null) ?? null;
+
+    // A bare `,steal` used as a reply has no subcommand, so getSubcommand()
+    // throws for the prefix adapter — fall back to the message flow instead of
+    // surfacing that as an error.
+    let sub: string;
+    try {
+      sub = (interaction.options as { getSubcommand: () => string }).getSubcommand();
+    } catch {
+      if (!replyTarget) {
+        return interaction.editReply({ ...CB.errorResponse(
+          'What Should I Steal?',
+          [
+            'Either **reply to a message** with this command, or use a subcommand:',
+            '> `steal emoji <emojis>` · `steal sticker <link>` · `steal upload <url> <name>` · `steal slots`',
+          ].join('\n'),
+        ) } as never);
+      }
+      sub = 'message';
+    }
+
     const SUBCOMMANDS = ['emoji', 'sticker', 'message', 'upload', 'slots'];
     if (!SUBCOMMANDS.includes(sub)) {
       return interaction.editReply({ ...CB.errorResponse(
@@ -180,7 +205,9 @@ export default new Command({
 
     // ── bulk emoji ──────────────────────────────────────────────────────────
     if (sub === 'emoji') {
-      const input = interaction.options.getString('emojis') ?? '';
+      // Fall back to the replied-to message when no emojis were typed.
+      const input = interaction.options.getString('emojis')
+        ?? (replyTarget ? replyTarget.content ?? '' : '');
       const refs = parseEmojis(input);
 
       if (!refs.length) {
@@ -226,40 +253,52 @@ export default new Command({
       } as never);
     }
 
-    // ── from a message link (stickers, or everything) ────────────────────────
-    const link = (interaction.options.getString('link') ?? '').trim();
-    const parsed = MESSAGE_LINK.exec(link);
-    if (!parsed) {
-      return interaction.editReply({ ...CB.errorResponse(
-        'Invalid Link', 'Right-click a message → **Copy Message Link**, then paste it here.',
-      ) } as never);
-    }
-
-    const [, linkGuildId, channelId, messageId] = parsed;
-
-    // Same-server only, and the caller must be able to see the channel —
-    // otherwise this reads other servers' or private channels' content through
-    // the bot's own access.
-    if (linkGuildId !== guild.id) {
-      return interaction.editReply({ ...CB.errorResponse(
-        'Different Server',
-        'That link points at another server. Paste an emoji or sticker directly instead — `/steal emoji` works across servers.',
-      ) } as never);
-    }
-
-    const channel = guild.channels.cache.get(channelId) as TextChannel | undefined;
-    if (!channel || typeof channel.messages?.fetch !== 'function') {
-      return interaction.editReply({ ...CB.errorResponse('Channel Not Found', 'I cannot see that channel.') } as never);
-    }
-    if (!channel.permissionsFor(interaction.user.id)?.has(PermissionFlagsBits.ViewChannel)) {
-      return interaction.editReply({ ...CB.errorResponse('No Access', 'You do not have access to that channel.') } as never);
-    }
-
+    // ── from a replied-to message, or a message link ─────────────────────────
+    // A reply is the most convenient path and needs no permission gymnastics:
+    // the user demonstrably sees the message, because they replied to it.
     let message: Message;
-    try {
-      message = await channel.messages.fetch(messageId);
-    } catch {
-      return interaction.editReply({ ...CB.errorResponse('Message Not Found', 'That message no longer exists.') } as never);
+
+    const link = (interaction.options.getString('link') ?? '').trim();
+
+    if (!link && replyTarget) {
+      message = replyTarget;
+    } else {
+      const parsed = MESSAGE_LINK.exec(link);
+      if (!parsed) {
+        return interaction.editReply({ ...CB.errorResponse(
+          'No Target',
+          [
+            'Either **reply** to the message you want to steal from, or paste a message link.',
+            '-# Right-click a message → **Copy Message Link**.',
+          ].join('\n'),
+        ) } as never);
+      }
+
+      const [, linkGuildId, channelId, messageId] = parsed;
+
+      // Same-server only, and the caller must be able to see the channel —
+      // otherwise this reads other servers' or private channels' content
+      // through the bot's own access.
+      if (linkGuildId !== guild.id) {
+        return interaction.editReply({ ...CB.errorResponse(
+          'Different Server',
+          'That link points at another server. Paste the emoji directly instead — `/steal emoji` works across servers.',
+        ) } as never);
+      }
+
+      const channel = guild.channels.cache.get(channelId) as TextChannel | undefined;
+      if (!channel || typeof channel.messages?.fetch !== 'function') {
+        return interaction.editReply({ ...CB.errorResponse('Channel Not Found', 'I cannot see that channel.') } as never);
+      }
+      if (!channel.permissionsFor(interaction.user.id)?.has(PermissionFlagsBits.ViewChannel)) {
+        return interaction.editReply({ ...CB.errorResponse('No Access', 'You do not have access to that channel.') } as never);
+      }
+
+      try {
+        message = await channel.messages.fetch(messageId);
+      } catch {
+        return interaction.editReply({ ...CB.errorResponse('Message Not Found', 'That message no longer exists.') } as never);
+      }
     }
 
     const results: AddOutcome[] = [];

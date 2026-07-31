@@ -253,6 +253,28 @@ export class MessageCommandAdapter {
   /** Real GuildMember — exposes .voice, .permissions, .roles etc. for music / permission checks */
   get member() { return this._msg.member; }
 
+  /** The message this command replied to, if it was invoked as a reply. */
+  get replyTargetId(): string | null {
+    return this._msg.reference?.messageId ?? null;
+  }
+
+  /**
+   * Fetches the message this command replied to.
+   *
+   * Slash commands have no equivalent, so commands that support reply-style
+   * invocation should feature-detect this method rather than assume it exists.
+   */
+  async fetchReplyTarget(): Promise<Message | null> {
+    const id = this._msg.reference?.messageId;
+    if (!id) return null;
+    try {
+      return await this._msg.channel.messages.fetch(id);
+    } catch {
+      // Deleted, or in a channel we can no longer read.
+      return null;
+    }
+  }
+
   replied = false;
   deferred = false;
 

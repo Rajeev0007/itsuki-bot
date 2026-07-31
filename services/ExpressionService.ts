@@ -41,8 +41,12 @@ export const MAX_STICKER_BYTES = 512 * 1024;
 /**
  * Emoji creation is rate limited far more tightly than normal requests, so bulk
  * adds are spaced out and capped per invocation.
+ *
+ * 25 at ~1.2s spacing is roughly 30 seconds of work, comfortably inside the
+ * 15-minute interaction token window while staying clear of Discord's
+ * (undocumented) per-guild expression creation limit.
  */
-export const BULK_LIMIT = 10;
+export const BULK_LIMIT = 25;
 const CREATE_DELAY_MS = 1_200;
 
 export interface SlotInfo {

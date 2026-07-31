@@ -12,6 +12,7 @@ import {
 import musicConfig from '../config/music';
 import logger from '../utils/Logger';
 import { formatDuration } from '../utils/MusicUtil';
+import { filterTracks } from '../utils/ContentFilter';
 import { getStore } from '../database/JsonStore';
 
 const guildsDB = getStore('guilds');
@@ -397,7 +398,10 @@ class MusicManager {
         try {
           const query = `${session.lastTrack.info?.author ?? ''} ${session.lastTrack.info?.title ?? ''}`.trim();
           const result = await player.search(`ytsearch:${query}`, this._client?.user);
-          const tracks = result?.tracks?.filter(t => t.info?.uri !== session.lastTrack?.info?.uri);
+          // Autoplay runs unattended, so it screens strictly: no NSFW-channel
+          // allowance, since nobody explicitly asked for this track.
+          const related = result?.tracks?.filter(t => t.info?.uri !== session.lastTrack?.info?.uri);
+          const tracks = filterTracks(related ?? [], false).allowed;
           if (tracks?.length) {
             const pick = tracks[Math.floor(Math.random() * Math.min(tracks.length, 5))];
             player.queue.add(pick);
