@@ -24,6 +24,8 @@ export default new Command({
     .addUserOption((o) => o.setName('opponent').setDescription('Who to battle').setRequired(true))
     .addStringOption((o) => o.setName('card').setDescription('Your card (defaults to your strongest)')),
   category: 'cards',
+  // Vote-locked to drive listing growth; premium members bypass it.
+  voteLocked: true,
   cooldown: 5_000,
 
   async execute(interaction: ChatInputCommandInteraction) {

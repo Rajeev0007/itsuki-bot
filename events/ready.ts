@@ -11,6 +11,8 @@ import PresenceManager from '../managers/PresenceManager';
 import StatsManager from '../managers/StatsManager';
 import CardManager from '../managers/CardManager';
 import CardService from '../services/CardService';
+import VoteWebhookServer from '../services/VoteWebhookServer';
+import VoteAnnouncer from '../services/VoteAnnouncer';
 
 export default new Event({
   name: 'ready',
@@ -27,6 +29,18 @@ export default new Event({
     // ── Activity tracking ───────────────────────────────────────────────────
     // Counters are buffered in memory; this starts the periodic disk flush.
     StatsManager.start();
+
+    // ── Vote webhooks + reminders ───────────────────────────────────────────
+    // Returns false when no provider secret is configured, which is a normal
+    // setup and not an error.
+    VoteWebhookServer.start(client, (event) => VoteAnnouncer.handle(client, event));
+
+    // Reminders sweep every 15 minutes. The `reminded` flag in VoteManager is
+    // what stops the same user being DMed on every pass.
+    void VoteAnnouncer.sendReminders(client).catch(() => { /* non-fatal */ });
+    setInterval(() => {
+      void VoteAnnouncer.sendReminders(client).catch(() => { /* non-fatal */ });
+    }, 15 * 60_000);
 
     // ── Card game upkeep ────────────────────────────────────────────────────
     // Warm the character cache so the first /roll isn't waiting on Jikan.
@@ -45,7 +59,7 @@ export default new Event({
     const STORES = [
       'users', 'economy', 'inventory', 'pets', 'gambling',
       'guilds', 'social', 'actions', 'profiles', 'moderation',
-      'cards', 'auctions', 'stats', 'settings', 'backups',
+      'cards', 'auctions', 'stats', 'settings', 'backups', 'premium', 'votes',
     ];
     setInterval(async () => {
       for (const name of STORES) {

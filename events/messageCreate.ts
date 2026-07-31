@@ -11,6 +11,8 @@ import { Event } from '../structures/Event';
 import { Command } from '../structures/Command';
 import { MessageCommandAdapter } from '../structures/MessageAdapter';
 import UserManager from '../managers/UserManager';
+import PremiumManager from '../managers/PremiumManager';
+import VoteManager from '../managers/VoteManager';
 import StatsManager from '../managers/StatsManager';
 import NoPrefixManager from '../managers/NoPrefixManager';
 import BlacklistManager from '../managers/BlacklistManager';
@@ -117,6 +119,29 @@ export default new Event({
     if (!command) return; // Unknown — stay silent
 
     // ── Guards ────────────────────────────────────────────────────────────────
+    // ── Premium / vote gating (mirrors the slash router) ────────────────────
+    if (command.premiumOnly && !(await PremiumManager.isPremium(userId, message.guild?.id ?? null))) {
+      return void replyError(
+        message, 'Premium Only',
+        `\`${prefix}${command.name}\` is a premium command. Run \`${prefix}premium\` to see what's included.`,
+      );
+    }
+    if (command.voteLocked) {
+      const perks = await PremiumManager.perksFor(userId, message.guild?.id ?? null);
+      if (!perks.bypassVoteLock && !(await VoteManager.hasVotedRecently(userId))) {
+        const botId = client.user?.id ?? config.clientId;
+        return void replyError(
+          message, 'Vote to Unlock',
+          [
+            `\`${prefix}${command.name}\` needs a vote — votes reset every 12 hours.`,
+            `Top.gg: ${VoteManager.PROVIDERS.topgg.url(botId)}`,
+            `Discord Bot List: ${VoteManager.PROVIDERS.dbl.url(botId)}`,
+            'Voting on either site unlocks it. Premium members skip this.',
+          ].join('\n'),
+        );
+      }
+    }
+
     if (command.guildOnly && !message.guild)
       return void replyError(
         message,

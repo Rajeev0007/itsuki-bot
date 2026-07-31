@@ -15,6 +15,7 @@ import * as CB       from '../../builders/ComponentBuilder';
 import StatsManager  from '../../managers/StatsManager';
 import CardManager   from '../../managers/CardManager';
 import RecordingManager from '../../managers/RecordingManager';
+import VoteWebhookServer from '../../services/VoteWebhookServer';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
 
@@ -57,6 +58,9 @@ export default new Command({
       const stopped = await RecordingManager.stopAll();
       if (stopped) logger.info(`[Shutdown] Stopped ${stopped} active recording(s).`);
     } catch { /* non-fatal */ }
+
+    // Release the webhook port so a restart doesn't hit EADDRINUSE.
+    try { VoteWebhookServer.stop(); } catch { /* non-fatal */ }
 
     setTimeout(() => {
       // destroy() is async; give it a moment to close the gateway cleanly

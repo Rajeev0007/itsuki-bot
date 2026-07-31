@@ -37,12 +37,12 @@ const CATEGORIES: Record<string, { label: string; desc: string; color: number; c
   stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
   gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',                 color: config.colors.info,    commands: ['minecraft','cs2','valorant'] },
   moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify','backup'] },
-  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','fetchfile','grab','steal','record'] },
+  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','vote','fetchfile','grab','steal','record'] },
 };
 
 const OWNER_CATEGORY = {
   label: 'Owner', desc: 'Bot management tools (owners only)', color: config.colors.danger,
-  commands: ['panel','botconfig','reload','maintenance','blacklist','noprefix','eval','shutdown'],
+  commands: ['panel','botconfig','reload','voteconfig','premiumadmin','maintenance','blacklist','noprefix','eval','shutdown'],
 };
 
 function isOwner(userId: string): boolean {
@@ -65,6 +65,8 @@ const SERVER_ONLY = new Set([
   'userstats',
   // Needs a voice channel.
   'record',
+  // Configures per-server vote channels.
+  'voteconfig',
   // Reads server emojis, icons and channel messages.
   'grab',
   // Writes emojis and stickers into a server.

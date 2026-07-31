@@ -17,6 +17,8 @@ export default new Command({
   data: new SlashCommandBuilder()
     .setName('roll').setDescription('Roll a random anime character card — first to claim it keeps it!'),
   category: 'cards',
+  // Vote-locked to drive listing growth; premium members bypass it.
+  voteLocked: true,
   aliases: ['w', 'draw'],
   cooldown: 3_000,
 

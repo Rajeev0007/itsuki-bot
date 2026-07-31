@@ -39,6 +39,13 @@ export interface CommandOptions {
    * identically in a DM.
    */
   guildOnly?: boolean;
+  /**
+   * Requires a recent vote on top.gg or Discord Bot List.
+   * Premium members and bot owners bypass it.
+   */
+  voteLocked?: boolean;
+  /** Requires an active premium grant (user or guild). */
+  premiumOnly?: boolean;
   nsfw?: boolean;
   premium?: boolean;
   permissions?: string[];
@@ -55,6 +62,8 @@ export class Command {
   cooldown: number | null;
   ownerOnly: boolean;
   guildOnly: boolean;
+  voteLocked: boolean;
+  premiumOnly: boolean;
   nsfw: boolean;
   premium: boolean;
   permissions: string[];
@@ -74,6 +83,8 @@ export class Command {
     // DM-allowed by default. Previously this defaulted to `true` while no
     // command ever set it, so every single command was blocked in DMs.
     this.guildOnly   = options.guildOnly   ?? false;
+    this.voteLocked  = options.voteLocked  ?? false;
+    this.premiumOnly = options.premiumOnly ?? false;
     this.nsfw        = options.nsfw        ?? false;
     this.premium     = options.premium     ?? false;
     this.permissions = options.permissions ?? [];
