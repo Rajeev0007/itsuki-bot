@@ -11,6 +11,9 @@ import { Event } from '../structures/Event';
 import { Command } from '../structures/Command';
 import { MessageCommandAdapter } from '../structures/MessageAdapter';
 import UserManager from '../managers/UserManager';
+import PremiumManager from '../managers/PremiumManager';
+import VoteManager from '../managers/VoteManager';
+import StatsManager from '../managers/StatsManager';
 import NoPrefixManager from '../managers/NoPrefixManager';
 import BlacklistManager from '../managers/BlacklistManager';
 import MaintenanceManager from '../managers/MaintenanceManager';
@@ -45,7 +48,10 @@ export default new Event({
     commands?: Collection<string, Command>;
   }) {
     if (message.author.bot) return;
-    if (!message.guild) return;
+    // NOTE: DMs are deliberately allowed through. This used to return early on
+    // `!message.guild`, which blocked every prefix command in DMs regardless of
+    // the command's own guildOnly setting. Individual commands are still gated
+    // by the `command.guildOnly` guard further down.
 
     const userId = message.author.id;
     const prefix = config.prefix;
@@ -57,6 +63,9 @@ export default new Event({
     const lastXp = _xpCooldown.get(userId) ?? 0;
     if (Date.now() - lastXp >= XP_COOLDOWN_MS) {
       _xpCooldown.set(userId, Date.now());
+      // Buffered in memory and flushed periodically — see StatsManager.
+      if (message.guild) StatsManager.recordMessage(message.guild.id, userId);
+
       void UserManager.addXp(userId, fmt.randomInt(2, 8))
         .then(({ leveledUp, newLevel }) => {
           if (leveledUp) {
@@ -110,8 +119,35 @@ export default new Event({
     if (!command) return; // Unknown — stay silent
 
     // ── Guards ────────────────────────────────────────────────────────────────
+    // ── Premium / vote gating (mirrors the slash router) ────────────────────
+    if (command.premiumOnly && !(await PremiumManager.isPremium(userId, message.guild?.id ?? null))) {
+      return void replyError(
+        message, 'Premium Only',
+        `\`${prefix}${command.name}\` is a premium command. Run \`${prefix}premium\` to see what's included.`,
+      );
+    }
+    if (command.voteLocked) {
+      const perks = await PremiumManager.perksFor(userId, message.guild?.id ?? null);
+      if (!perks.bypassVoteLock && !(await VoteManager.hasVotedRecently(userId))) {
+        const botId = client.user?.id ?? config.clientId;
+        return void replyError(
+          message, 'Vote to Unlock',
+          [
+            `\`${prefix}${command.name}\` needs a vote — votes reset every 12 hours.`,
+            `Top.gg: ${VoteManager.PROVIDERS.topgg.url(botId)}`,
+            `Discord Bot List: ${VoteManager.PROVIDERS.dbl.url(botId)}`,
+            'Voting on either site unlocks it. Premium members skip this.',
+          ].join('\n'),
+        );
+      }
+    }
+
     if (command.guildOnly && !message.guild)
-      return void replyError(message, 'Server Only', 'This command can only be used inside a server.');
+      return void replyError(
+        message,
+        'Server Only',
+        `\`${prefix}${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
+      );
 
     if (command.ownerOnly && !config.owners.includes(userId))
       return void replyError(message, 'Owner Only', 'This command is restricted to bot owners.');
@@ -127,7 +163,10 @@ export default new Event({
     if (command.maintenance)
       return void replyError(message, 'Maintenance', 'This command is temporarily disabled.');
 
-    if (command.permissions.length) {
+    // Permission checks only make sense inside a guild — in a DM there is no
+    // member and no role permissions, and `message.member` is null, so an
+    // unguarded check would report every permission as missing.
+    if (command.permissions.length && message.guild) {
       const missing = command.permissions.filter(
         (p) => !message.member?.permissions.has(p as never)
       );
@@ -166,7 +205,16 @@ export default new Event({
 
     try {
       logger.command(command.name, message.author.tag, message.guild?.name ?? 'DM');
+      if (message.guild) StatsManager.recordCommand(message.guild.id, userId);
       await command.execute(adapter as never, client);
+      // Same safety net as the slash router: never leave a deferred prefix
+      // command sitting on its "Working…" placeholder with no result.
+      if (adapter.deferred && !adapter.replied) {
+        logger.warn(`[Prefix] ${command.name} deferred but never responded — sending a fallback.`);
+        await adapter.sendError(
+          CB.errorResponse('Nothing to Show', 'That command finished without a result. Please check your input and try again.'),
+        ).catch(() => {});
+      }
     } catch (err) {
       logger.error(`[Prefix] ${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');

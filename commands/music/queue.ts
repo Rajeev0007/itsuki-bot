@@ -72,6 +72,8 @@ export default new Command({
     .setDescription('Show the current song queue.')
     .addIntegerOption((o) => o.setName('page').setDescription('Page number').setMinValue(1)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });

@@ -12,6 +12,9 @@ import { Command } from '../structures/Command';
 import config from '../config/config';
 import logger from '../utils/Logger';
 import cooldowns from '../managers/CooldownManager';
+import StatsManager from '../managers/StatsManager';
+import PremiumManager from '../managers/PremiumManager';
+import VoteManager from '../managers/VoteManager';
 import BlacklistManager from '../managers/BlacklistManager';
 import MaintenanceManager from '../managers/MaintenanceManager';
 import * as CB from '../builders/ComponentBuilder';
@@ -82,9 +85,51 @@ export default new Event({
 
     // ── Guards ────────────────────────────────────────────────────────────────
 
+    // ── Premium / vote gating ───────────────────────────────────────────────
+    // Checked before the guild gate so a premium-only command in a DM reports
+    // the more useful of the two reasons.
+    if (command.premiumOnly && !(await PremiumManager.isPremium(userId, guild?.id ?? null))) {
+      await cmdInteraction.reply({
+        ...CB.errorResponse(
+          'Premium Only',
+          `\`/${command.name}\` is a premium command. Run \`/premium\` to see what's included.`,
+        ),
+        flags: V2_EPHEMERAL,
+      } as never).catch(() => {});
+      return;
+    }
+
+    if (command.voteLocked) {
+      const perks = await PremiumManager.perksFor(userId, guild?.id ?? null);
+      // Premium (and owners, via resolveTier) skip the vote requirement.
+      if (!perks.bypassVoteLock && !(await VoteManager.hasVotedRecently(userId))) {
+        const botId = client.user?.id ?? config.clientId;
+        await cmdInteraction.reply({
+          ...CB.errorResponse(
+            'Vote to Unlock',
+            [
+              `\`/${command.name}\` needs a vote to use — it takes a few seconds and votes reset every 12 hours.`,
+              '',
+              `• [Vote on Top.gg](${VoteManager.PROVIDERS.topgg.url(botId)})`,
+              `• [Vote on Discord Bot List](${VoteManager.PROVIDERS.dbl.url(botId)})`,
+              '',
+              '-# Voting on either site unlocks it. Premium members skip this entirely.',
+            ].join('\n'),
+          ),
+          flags: V2_EPHEMERAL,
+        } as never).catch(() => {});
+        return;
+      }
+    }
+
+    // Backstop only: guild-only commands declare `contexts: [Guild]`, so Discord
+    // shouldn't even offer them in DMs. This still catches stale registrations.
     if (command.guildOnly && !guild) {
       await cmdInteraction.reply({
-        ...CB.errorResponse('Server Only', 'This command can only be used inside a server.'),
+        ...CB.errorResponse(
+          'Server Only',
+          `\`/${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
+        ),
         flags: V2_EPHEMERAL,
       } as never).catch(() => {});
       return;
@@ -158,7 +203,18 @@ export default new Event({
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
       logger.command(command.name, cmdInteraction.user.tag, guild?.name ?? 'DM');
+      if (guild) StatsManager.recordCommand(guild.id, userId);
       await command.execute(cmdInteraction, client);
+      // Safety net for a whole class of bug: a command that defers and then
+      // returns down a code path that never sends anything (an unmatched
+      // subcommand branch, say) would otherwise leave the user staring at
+      // "thinking…" until Discord expires it, with nothing in the logs.
+      if (cmdInteraction.deferred && !cmdInteraction.replied) {
+        logger.warn(`[interactionCreate] /${command.name} deferred but never responded — sending a fallback.`);
+        await cmdInteraction.editReply({
+          ...CB.errorResponse('Nothing to Show', 'That command finished without a result. Please check your input and try again.'),
+        } as never).catch(() => {});
+      }
     } catch (err) {
       logger.error(`[interactionCreate] /${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');

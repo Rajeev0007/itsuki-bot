@@ -11,6 +11,8 @@ export default new Command({
       o.setName('mode').setDescription('Loop mode').setRequired(true)
         .addChoices({ name: 'Off', value: 'off' }, { name: 'Track', value: 'track' }, { name: 'Queue', value: 'queue' })),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, session, player } = musicCheck(interaction, music, { needsQueue: true });

@@ -6,6 +6,8 @@ import { musicCheck, musicError, musicSuccess } from '../../utils/MusicUtil';
 export default new Command({
   data: new SlashCommandBuilder().setName('shuffle').setDescription('Shuffle the upcoming tracks in the queue.'),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, session, player } = musicCheck(interaction, music, { needsQueue: true });

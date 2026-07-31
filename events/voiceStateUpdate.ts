@@ -3,11 +3,34 @@ import { Event } from '../structures/Event';
 import logger from '../utils/Logger';
 import music from '../managers/MusicManager';
 import musicConfig from '../config/music';
+import StatsManager from '../managers/StatsManager';
 
 export default new Event({
   name: 'voiceStateUpdate',
   async execute(oldState: VoiceState, newState: VoiceState, client: Client) {
     const guildId = oldState.guild.id;
+
+    // ── Voice activity tracking ─────────────────────────────────────────────
+    // Must run BEFORE the music-session early-return below, otherwise voice
+    // time would only ever be counted in servers that happen to be playing
+    // music through the bot.
+    const memberId = (newState.member ?? oldState.member)?.id;
+    if (memberId && memberId !== client.user?.id && !(newState.member ?? oldState.member)?.user.bot) {
+      const wasIn = Boolean(oldState.channelId);
+      const isIn  = Boolean(newState.channelId);
+
+      if (!wasIn && isIn) {
+        StatsManager.voiceJoin(guildId, memberId);
+      } else if (wasIn && !isIn) {
+        StatsManager.voiceLeave(guildId, memberId);
+      } else if (wasIn && isIn && oldState.channelId !== newState.channelId) {
+        // Moving between channels: bank the previous stretch and restart, so
+        // hopping channels doesn't discard the accumulated time.
+        StatsManager.voiceLeave(guildId, memberId);
+        StatsManager.voiceJoin(guildId, memberId);
+      }
+    }
+
     const session = music.getSession(guildId);
     if (!session) return;
 

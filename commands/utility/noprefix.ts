@@ -75,6 +75,18 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 
     const sub = interaction.options.getSubcommand();
+    // Prefix users aren't restricted to the slash subcommand choices, so an
+    // unrecognised value has to be rejected explicitly. Without this the
+    // command fell through every branch and returned without ever editing its
+    // deferred reply, leaving the message stuck on the loading placeholder.
+    const SUBCOMMANDS = ['add', 'remove', 'list'];
+    if (!SUBCOMMANDS.includes(sub)) {
+      return interaction.editReply(err(
+        'Unknown Subcommand',
+        `\`${sub}\` isn't valid here. Use one of: ${SUBCOMMANDS.map((s) => `\`${s}\``).join(', ')}.`,
+      ) as never);
+    }
+
 
     // ── Add ─────────────────────────────────────────────────────────────────
     if (sub === 'add') {

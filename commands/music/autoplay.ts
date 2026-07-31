@@ -6,6 +6,8 @@ import { musicSuccess } from '../../utils/MusicUtil';
 export default new Command({
   data: new SlashCommandBuilder().setName('autoplay').setDescription('Toggle autoplay — queues a related track when the queue runs out.'),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const enabled = music.toggleAutoplay(interaction.guild!.id);

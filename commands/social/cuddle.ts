@@ -1,2 +1,9 @@
 import { createSocialCommand } from '../../utils/SocialCommandFactory';
-export default createSocialCommand('cuddle', '', 'cuddled', 'social');
+
+export default createSocialCommand({
+  action:    'cuddle',
+  emoji:     '🫂',
+  pastTense: 'cuddled',
+  plural:    'cuddles',
+  category:  'social',
+});

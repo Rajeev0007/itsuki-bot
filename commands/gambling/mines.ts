@@ -26,6 +26,8 @@ export default new Command({
     .addStringOption((o) => o.setName('bet').setDescription('Amount to bet').setRequired(true))
     .addIntegerOption((o) => o.setName('mines').setDescription('Number of mines (1-24)').setMinValue(1).setMaxValue(24).setRequired(true)),
   category: 'gambling',
+  // Vote-locked to drive listing growth; premium members bypass it.
+  voteLocked: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 

@@ -3,12 +3,16 @@
  * @description Fires once when the bot connects and is ready.
  */
 
-import { ActivityType, type Client } from 'discord.js';
+import { type Client } from 'discord.js';
 import { Event }   from '../structures/Event';
-import config      from '../config/config';
 import logger      from '../utils/Logger';
 import { getStore } from '../database/JsonStore';
-import musicManager from '../managers/MusicManager';
+import PresenceManager from '../managers/PresenceManager';
+import StatsManager from '../managers/StatsManager';
+import CardManager from '../managers/CardManager';
+import CardService from '../services/CardService';
+import VoteWebhookServer from '../services/VoteWebhookServer';
+import VoteAnnouncer from '../services/VoteAnnouncer';
 
 export default new Event({
   name: 'ready',
@@ -17,30 +21,45 @@ export default new Event({
     logger.ready(`Logged in as ${client.user!.tag} | ${client.guilds.cache.size} guild(s)`);
     logger.info(`Serving ${client.users.cache.size} users | ${client.channels.cache.size} channels`);
 
-    const activities = config.presence.activities;
-    let idx = 0;
+    // Presence is owned by PresenceManager so the owner panel can change it
+    // live and have it survive a restart. It restores any saved custom presence
+    // and starts the rotation loop itself.
+    await PresenceManager.init(client);
 
-    const setPresence = () => {
-      for (const [, session] of musicManager.sessions) {
-        if (session.current) return;
-      }
-      const act = activities[idx % activities.length];
-      client.user!.setPresence({
-        status: config.presence.status,
-        activities: [{ name: act.name, type: act.type ?? ActivityType.Playing }],
-      });
-      idx++;
-    };
+    // ── Activity tracking ───────────────────────────────────────────────────
+    // Counters are buffered in memory; this starts the periodic disk flush.
+    StatsManager.start();
 
-    setPresence();
-    setInterval(setPresence, config.presence.activityInterval);
+    // ── Vote webhooks + reminders ───────────────────────────────────────────
+    // Returns false when no provider secret is configured, which is a normal
+    // setup and not an error.
+    VoteWebhookServer.start(client, (event) => VoteAnnouncer.handle(client, event));
+
+    // Reminders sweep every 15 minutes. The `reminded` flag in VoteManager is
+    // what stops the same user being DMed on every pass.
+    void VoteAnnouncer.sendReminders(client).catch(() => { /* non-fatal */ });
+    setInterval(() => {
+      void VoteAnnouncer.sendReminders(client).catch(() => { /* non-fatal */ });
+    }, 15 * 60_000);
+
+    // ── Card game upkeep ────────────────────────────────────────────────────
+    // Warm the character cache so the first /roll isn't waiting on Jikan.
+    void CardService.preload().catch(() => { /* non-fatal */ });
+
+    // Return expired auction listings to their sellers. Runs on boot and then
+    // every 10 minutes, so a card can never be stranded in escrow.
+    void CardManager.expireListings().catch(() => { /* non-fatal */ });
+    setInterval(() => {
+      void CardManager.expireListings().catch(() => { /* non-fatal */ });
+    }, 10 * 60_000);
 
     // Only stores the bot actually uses. 'anime' and 'marriages' don't exist —
     // naming them here made getStore() create two empty JSON files on the first
     // backup pass and then dutifully back them up forever.
     const STORES = [
       'users', 'economy', 'inventory', 'pets', 'gambling',
-      'guilds', 'social', 'actions', 'profiles',
+      'guilds', 'social', 'actions', 'profiles', 'moderation',
+      'cards', 'auctions', 'stats', 'settings', 'backups', 'premium', 'votes',
     ];
     setInterval(async () => {
       for (const name of STORES) {

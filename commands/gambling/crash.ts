@@ -38,6 +38,8 @@ export default new Command({
     .addStringOption((o) => o.setName('bet').setDescription('Amount to bet').setRequired(true))
     .addNumberOption((o) => o.setName('cashout').setDescription('Auto cash-out multiplier (e.g. 2.0)').setMinValue(1.01).setMaxValue(100)),
   category: 'gambling',
+  // Vote-locked to drive listing growth; premium members bypass it.
+  voteLocked: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 

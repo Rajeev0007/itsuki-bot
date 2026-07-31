@@ -9,6 +9,8 @@ export default new Command({
     .setDescription('Toggle 24/7 mode — bot stays in VC even when queue is empty.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const enabled = music.toggleAlwaysOn(interaction.guild!.id);

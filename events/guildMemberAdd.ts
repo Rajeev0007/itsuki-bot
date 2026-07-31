@@ -1,6 +1,7 @@
 import { type GuildMember } from 'discord.js';
 import { Event }       from '../structures/Event';
 import UserManager     from '../managers/UserManager';
+import WelcomerManager from '../managers/WelcomerManager';
 import logger          from '../utils/Logger';
 
 export default new Event({
@@ -17,6 +18,14 @@ export default new Event({
       await UserManager.updateUsername(member.user.id, member.user.username);
     } catch (err) {
       logger.error('[guildMemberAdd] Failed to init user:', (err as Error).message);
+    }
+
+    // Kept separate from the record provisioning above: a database hiccup must
+    // not stop the welcome message, and vice versa.
+    try {
+      await WelcomerManager.fire(member, 'welcome');
+    } catch (err) {
+      logger.warn(`[guildMemberAdd] Welcomer failed: ${(err as Error).message}`);
     }
   },
 });

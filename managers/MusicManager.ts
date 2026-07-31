@@ -12,6 +12,10 @@ import {
 import musicConfig from '../config/music';
 import logger from '../utils/Logger';
 import { formatDuration } from '../utils/MusicUtil';
+import { filterTracks } from '../utils/ContentFilter';
+import { getStore } from '../database/JsonStore';
+
+const guildsDB = getStore('guilds');
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { LavendeManager } = require('lavende') as {
@@ -102,13 +106,71 @@ class MusicManager {
       }
     });
 
+    // Bring back 24/7, autoplay and locked-channel settings from disk.
+    void this.loadAllGuildSettings();
+
     logger.info('[Music] Lavende native engine initialised.');
   }
 
-  /* Guild settings */
+  /* Guild settings
+   *
+   * These live in memory for fast access but are mirrored to guilds.json.
+   * They used to be memory-only, so /247, /autoplay and /setvoice silently
+   * reset on every restart — a server would enable 24/7, the bot would be
+   * redeployed, and it would then leave the channel as if nothing was set.
+   */
+
+  /** Loads persisted settings for a guild into the in-memory cache. */
+  private async _loadGuildSettings(guildId: string): Promise<void> {
+    try {
+      const stored = await guildsDB.get(`${guildId}.music`) as Partial<GuildSettings> | undefined;
+      if (stored && typeof stored === 'object') {
+        this.guildSettings.set(guildId, {
+          alwaysOn:        Boolean(stored.alwaysOn),
+          autoplay:        Boolean(stored.autoplay),
+          lockedChannelId: typeof stored.lockedChannelId === 'string' ? stored.lockedChannelId : null,
+        });
+      }
+    } catch (err) {
+      logger.debug(`[Music] Could not load settings for ${guildId}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Restores every guild's persisted music settings. Called once on startup. */
+  async loadAllGuildSettings(): Promise<void> {
+    try {
+      const entries = await guildsDB.all();
+      let restored = 0;
+      for (const [guildId, data] of entries) {
+        const music = (data as { music?: Partial<GuildSettings> } | null)?.music;
+        if (!music || typeof music !== 'object') continue;
+        this.guildSettings.set(guildId, {
+          alwaysOn:        Boolean(music.alwaysOn),
+          autoplay:        Boolean(music.autoplay),
+          lockedChannelId: typeof music.lockedChannelId === 'string' ? music.lockedChannelId : null,
+        });
+        restored++;
+      }
+      if (restored) logger.info(`[Music] Restored music settings for ${restored} guild(s).`);
+    } catch (err) {
+      logger.warn(`[Music] Failed to restore guild settings: ${(err as Error).message}`);
+    }
+  }
+
+  private _persist(guildId: string): void {
+    const s = this.guildSettings.get(guildId);
+    if (!s) return;
+    // Fire-and-forget: never block a music command on a disk write.
+    void guildsDB.set(`${guildId}.music`, {
+      alwaysOn: s.alwaysOn, autoplay: s.autoplay, lockedChannelId: s.lockedChannelId,
+    }).catch((err: Error) => logger.warn(`[Music] Failed to persist settings for ${guildId}: ${err.message}`));
+  }
+
   getGuildSettings(guildId: string): GuildSettings {
     if (!this.guildSettings.has(guildId)) {
       this.guildSettings.set(guildId, { alwaysOn: false, autoplay: false, lockedChannelId: null });
+      // Pull anything persisted in the background; the default is returned now.
+      void this._loadGuildSettings(guildId);
     }
     return this.guildSettings.get(guildId)!;
   }
@@ -116,17 +178,20 @@ class MusicManager {
   toggleAlwaysOn(guildId: string): boolean {
     const s = this.getGuildSettings(guildId);
     s.alwaysOn = !s.alwaysOn;
+    this._persist(guildId);
     return s.alwaysOn;
   }
 
   toggleAutoplay(guildId: string): boolean {
     const s = this.getGuildSettings(guildId);
     s.autoplay = !s.autoplay;
+    this._persist(guildId);
     return s.autoplay;
   }
 
   setLockedChannel(guildId: string, channelId: string | null): void {
     this.getGuildSettings(guildId).lockedChannelId = channelId;
+    this._persist(guildId);
   }
 
   /* Session / player management */
@@ -333,7 +398,10 @@ class MusicManager {
         try {
           const query = `${session.lastTrack.info?.author ?? ''} ${session.lastTrack.info?.title ?? ''}`.trim();
           const result = await player.search(`ytsearch:${query}`, this._client?.user);
-          const tracks = result?.tracks?.filter(t => t.info?.uri !== session.lastTrack?.info?.uri);
+          // Autoplay runs unattended, so it screens strictly: no NSFW-channel
+          // allowance, since nobody explicitly asked for this track.
+          const related = result?.tracks?.filter(t => t.info?.uri !== session.lastTrack?.info?.uri);
+          const tracks = filterTracks(related ?? [], false).allowed;
           if (tracks?.length) {
             const pick = tracks[Math.floor(Math.random() * Math.min(tracks.length, 5))];
             player.queue.add(pick);

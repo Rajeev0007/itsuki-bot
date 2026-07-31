@@ -6,6 +6,8 @@ import { musicError, musicSuccess } from '../../utils/MusicUtil';
 export default new Command({
   data: new SlashCommandBuilder().setName('leave').setDescription('Leave the voice channel and clear the queue.'),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const member = interaction.member as { voice?: { channel?: { id: string } } };

@@ -214,6 +214,21 @@ const config = {
     ],
   },
 
+  /* Anime card game */
+  cards: {
+    /** Cooldown between /roll draws. */
+    rollCooldown: 60_000,
+    /** How long a rolled card stays claimable. */
+    claimWindow: 45_000,
+    /** Cards shown per /collection page. */
+    perPage: 9,
+    /** Max simultaneous auction listings per user. */
+    maxListings: 5,
+    /** Coins awarded to a battle winner. */
+    battleReward: { min: 250, max: 1_200 },
+    battleCooldown: 120_000,
+  },
+
   /* Achievements */
   achievements: {
     firstBalance: { id: 'first_balance', name: 'First Look', desc: 'Check your balance for the first time.', reward: 100 },
