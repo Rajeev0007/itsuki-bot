@@ -13,7 +13,7 @@ import musicConfig from '../config/music';
 import logger from '../utils/Logger';
 import { formatDuration } from '../utils/MusicUtil';
 import { filterTracks } from '../utils/ContentFilter';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 
 const guildsDB = getStore('guilds');
 

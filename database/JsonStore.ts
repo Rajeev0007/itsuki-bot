@@ -1,7 +1,16 @@
 /**
  * @file JsonStore.ts
- * @description Production-grade async JSON database with memory cache,
- * atomic writes, auto-backups, and queue-based operations.
+ * @description LEGACY file-backed store. Retained only so
+ * `scripts/migrate-to-mongo.ts` can read existing data out of `database/*.json`.
+ *
+ * Nothing in the running bot uses this any more — every consumer imports
+ * `getStore` from `database/Store.ts`, which is MongoDB-backed. Do not add new
+ * callers: this store keeps each collection wholly in memory and rewrites the
+ * entire file on every change, which is what made it slow under load and what
+ * allowed an interrupted write to truncate a file.
+ *
+ * Once the migration has been run and verified, this file and the JSON files can
+ * be deleted.
  */
 
 import fs   from 'fs/promises';

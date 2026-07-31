@@ -9,7 +9,7 @@ import * as CB        from '../../builders/ComponentBuilder';
 import fmt            from '../../utils/Formatter';
 import config         from '../../config/config';
 import ProgressBar    from '../../utils/ProgressBar';
-import { getStore }   from '../../database/JsonStore';
+import { getStore }   from '../../database/Store';
 
 const petsDB = getStore('pets');
 const PET_TYPES = config.pets.types;

@@ -28,7 +28,7 @@ import {
   type MessageTemplate, type TemplateStyle,
 } from './MessageTemplate';
 import WelcomerManager, { type WelcomerEvent } from '../managers/WelcomerManager';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger from '../utils/Logger';
 
 const templatesDB = getStore('templates');

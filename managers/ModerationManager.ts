@@ -14,7 +14,7 @@ import {
   SeparatorBuilder, SeparatorSpacingSize, MessageFlags,
   type Guild, type GuildMember, type User, type TextBasedChannel,
 } from 'discord.js';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger from '../utils/Logger';
 
 const guildsDB = getStore('guilds');

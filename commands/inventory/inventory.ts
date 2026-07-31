@@ -6,7 +6,7 @@ import {
 import { Command }  from '../../structures/Command';
 import * as CB      from '../../builders/ComponentBuilder';
 import config       from '../../config/config';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 
 const inventoryDB = getStore('inventory');
 

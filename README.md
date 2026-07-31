@@ -6,7 +6,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865f2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-≥22-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-≥20-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
 
 </div>
@@ -34,8 +34,9 @@
 
 | Tool | Version |
 |---|---|
-| **Node.js** | ≥ 22.0.0 |
+| **Node.js** | ≥ 20.18.0 (22 LTS recommended) |
 | **npm** | ≥ 8 |
+| **MongoDB** | ≥ 5.0 — local, Docker or a free Atlas cluster |
 
 > **Linux/Ubuntu** — the `canvas` package needs native libraries:
 > ```bash
@@ -94,6 +95,7 @@ No build step required — TypeScript runs directly via `tsx`.
 |---|---|
 | `npm start` | Start the bot |
 | `npm run dev` | Watch mode — auto-restart on file changes |
+| `npm run migrate` | Dry-run import of legacy `database/*.json` into MongoDB |
 | `npm run deploy` | Register slash commands globally |
 | `npm run deploy:guild` | Register to dev guild instantly |
 | `npm run typecheck` | Type-check without running |
@@ -152,6 +154,69 @@ All bot behaviour lives in **`config/config.ts`**:
 
 ---
 
+## Database
+
+Everything lives in MongoDB. Set `MONGO_URI` and the bot creates what it needs on
+first write — there is no schema step.
+
+```bash
+MONGO_URI=mongodb://127.0.0.1:27017/itsuki          # local
+MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/itsuki   # Atlas
+```
+
+### Layout
+
+One collection per store, one document per top-level key, with the value under
+`v`:
+
+```js
+// getStore('economy').set('123456789.wallet', 500)
+db.economy.findOne({ _id: '123456789' })
+// { _id: '123456789', v: { wallet: 500, bank: 0 } }
+```
+
+So a key path maps to a document id plus a field path — `"123456789.wallet"`
+becomes `_id: "123456789"`, field `v.wallet`. The `v` wrapper looks redundant for
+objects, but top-level values are not always objects (`maintenance` stores a
+boolean, some stores hold arrays) and a document cannot have a bare scalar body.
+One wrapper means scalars, arrays and objects share a single code path.
+
+Query it directly with `v.` prefixes:
+
+```js
+db.economy.find({ 'v.wallet': { $gt: 10000 } })
+```
+
+### Migrating from the old JSON files
+
+```bash
+npm run migrate              # dry run — reports what would happen, writes nothing
+npm run migrate -- --write   # import
+```
+
+Dry run is the default because this touches live data. Re-running is safe:
+existing documents are left alone unless you pass `--force`, so an interrupted
+import can just be run again, and a re-run after people have been playing will
+not roll their progress back.
+
+The script verifies document counts against the JSON keys afterwards and will
+tell you if anything is short. **Only delete `database/*.json` and
+`database/JsonStore.ts` once it reports a clean match** and the bot has started
+and looked correct.
+
+`database/*.json` is now gitignored — data does not belong in version control.
+
+### Why not the old JSON store
+
+It held every collection wholly in memory and rewrote the **entire file** on
+every change through a serialised queue. That is what made it slow under load,
+and an interrupted write could truncate a file. Counters were also read-modify-
+written in JavaScript, so two overlapping payouts could read the same balance and
+one would be silently discarded. Writes now touch a single document, and
+`add()`/`push()` use `$inc`/`$push`, which are atomic server-side.
+
+---
+
 ## Hosting
 
 ### Any x86-64 VPS (Ubuntu / Debian)
@@ -181,6 +246,39 @@ pm2 save && pm2 startup
 > ⚠️ **Architecture note:** The music engine (`lavende`) ships x86-64 binaries only.
 > Use an **x86-64 / amd64** server. Check with `uname -m` — must output `x86_64`.
 
+### Pterodactyl / Pelican game panels
+
+Works with the stock Node.js egg — no startup-command edit needed. Set the
+**main file** variable to any of these:
+
+| `MAIN_FILE` | How the egg launches it |
+|---|---|
+| `index.ts` | `ts-node index.ts` — works; `typescript` is a runtime dependency and `transpileOnly` is set |
+| `index.js` | `node index.js` — delegates to `start.js` |
+| `start.js` | `node start.js` — registers `tsx`, then loads `index.ts` |
+
+All three end up in the same place. `start.js` detects whether a TypeScript
+require hook is already registered, so it never stacks a second one on top of
+ts-node.
+
+Two notes on the stock egg:
+
+- Its last line is
+  `if [[ "${MAIN_FILE}" == "*.js" ]]; then node ...; else ts-node ...; fi`.
+  The pattern is quoted, which makes it a literal string test that never
+  matches, so *every* `MAIN_FILE` value actually runs through ts-node. That is
+  supported, so it does not matter — but it does mean picking a `.js` main file
+  will not change which runtime is used.
+- `AUTO_UPDATE=1` makes the panel `git pull` on boot. It pulls the **branch
+  checked out in `/home/container`**, so work sitting on an unmerged branch will
+  never arrive.
+
+If you would rather bypass the egg's logic entirely:
+
+```bash
+if [ -f /home/container/package.json ]; then npm install; fi; npm start
+```
+
 ### Railway / Render / Fly.io
 
 1. Fork this repo and connect it in the platform dashboard
@@ -194,6 +292,53 @@ pm2 save && pm2 startup
 1. Import this repo into Replit
 2. Add Secrets: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`
 3. The `Itsuki Bot` workflow runs `npm start` automatically
+
+---
+
+## Troubleshooting
+
+**`npm error code ERESOLVE` mentioning `opusscript`**
+Read the version npm reports as "from the root project". If it says
+`opusscript@"^0.1.1"`, the deployed `package.json` is out of date — the fix is
+to get the current one onto the host, not to change anything else. This repo
+pins `^0.0.8`, which is the only range `prism-media@1.3.5` accepts (for `0.x`
+versions `^0.0.8` means `>=0.0.8 <0.0.9`, so `0.1.1` can never satisfy it).
+
+`.npmrc` also sets `legacy-peer-deps=true`, because every peer dependency here
+is an *optional* voice codec and npm should not fail the whole install over
+one. A bare `npm install` picks that up automatically.
+
+**`TypeError: Cannot read properties of undefined (reading 'fileExists')`**
+ts-node could not load the `typescript` module, so its internal `ts` binding
+was undefined. Almost always this means **`npm install` failed earlier in the
+same command** — check further up the log — and `node_modules` was never
+populated. Fix the install and this goes away.
+
+`typescript` is a runtime `dependency` rather than a devDependency precisely so
+it survives `npm install --omit=dev`, and `tsconfig.json` sets
+`ts-node.transpileOnly` so start-up skips type checking (fast, and a stray type
+error cannot stop the bot booting).
+
+**`Cannot find module 'tsx/cjs'`**
+Dependencies are not installed. Run `npm install`.
+
+**`npm ci` fails with a lockfile error**
+There is no committed `package-lock.json` — run `npm install` once to generate
+one, then `npm ci` works on later deploys.
+
+**`Cannot play audio as no valid encryption package is installed`**
+`libsodium-wrappers` did not install. Re-run `npm install`; it is a pure-JS
+package and needs no build tools.
+
+**`Could not reach MongoDB` on startup**
+`MONGO_URI` is missing or wrong, or the server is unreachable. The bot exits
+rather than starting with no database, because a half-configured bot writes data
+somewhere nobody looks. For Atlas, check that your IP is allow-listed and that
+the password is URL-encoded.
+
+**`canvas` fails to build**
+Install the native libraries listed under [Requirements](#requirements), then
+reinstall. `canvas` powers the leaderboard and stats images.
 
 ---
 

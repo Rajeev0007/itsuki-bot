@@ -6,7 +6,7 @@ import {
 import { Command } from '../../structures/Command';
 import config from '../../config/config';
 import fmt from '../../utils/Formatter';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 import { EMOJI as E } from '../../utils/Constants';
 
 const usersDB = getStore('users');

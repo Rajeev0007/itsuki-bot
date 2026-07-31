@@ -6,7 +6,7 @@
 import UserManager  from './UserManager';
 import config       from '../config/config';
 import fmt          from '../utils/Formatter';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 
 const economyDB = getStore('economy');
 

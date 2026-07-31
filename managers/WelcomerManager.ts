@@ -11,7 +11,7 @@
  */
 
 import type { Guild, GuildMember, TextChannel } from 'discord.js';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import {
   emptyTemplate, renderTemplate, isRenderable,
   type MessageTemplate, type TemplateStyle,

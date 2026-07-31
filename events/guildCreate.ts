@@ -1,6 +1,6 @@
 import { type Guild } from 'discord.js';
 import { Event }    from '../structures/Event';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger       from '../utils/Logger';
 
 export default new Event({

@@ -21,3 +21,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Live database contents. Data belongs in MongoDB, not in git — committing it
+# bloated the repo and made every deploy a potential merge conflict over
+# somebody's balance. The legacy JSON files are kept locally only so
+# `npm run migrate` can still read them.
+database/*.json
+database/backups/

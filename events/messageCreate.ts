@@ -30,6 +30,66 @@ const V2_FLAGS = IS_V2;
 const _xpCooldown = new Map<string, number>();
 const XP_COOLDOWN_MS = 60_000;
 
+/**
+ * Whether a command declares any options or subcommands, i.e. whether trailing
+ * words could plausibly be arguments.
+ *
+ * Memoised by command name because this is on the per-message path and
+ * `toJSON()` rebuilds the whole payload each call.
+ */
+const _acceptsInput = new Map<string, boolean>();
+
+export function commandAcceptsInput(command: Command): boolean {
+  const cached = _acceptsInput.get(command.name);
+  if (cached !== undefined) return cached;
+
+  let accepts: boolean;
+  try {
+    const data = command.data as {
+      options?: unknown[];
+      toJSON?: () => { options?: unknown[] };
+    };
+    // `.options` is read first because builders expose it directly and, unlike
+    // toJSON(), reading it cannot throw — toJSON() validates the whole builder.
+    const options = Array.isArray(data.options) ? data.options : data.toJSON?.().options;
+
+    // "No options" is only meaningful when the option list was actually
+    // readable. If neither form is available we genuinely cannot tell, and
+    // refusing to run a command the user deliberately typed is worse than an
+    // occasional false trigger — so assume it takes input.
+    accepts = Array.isArray(options) ? options.length > 0 : true;
+  } catch {
+    accepts = true;
+  }
+  _acceptsInput.set(command.name, accepts);
+  return accepts;
+}
+
+/**
+ * Intent checks that apply ONLY to the no-prefix path.
+ *
+ * A prefix is an unambiguous "this is a command" signal. Without one, any
+ * sentence whose first word happened to match a command name ran that command:
+ * "stop it" stopped the music for the whole server, "help me with this" opened
+ * the help menu, and "work is hard" burned the work cooldown. Two rules remove
+ * the damaging cases while leaving real usage untouched:
+ */
+export function noPrefixLooksIntentional(command: Command, token: string, args: string[]): boolean {
+  // 1. One- and two-letter aliases (h, v, w, np, lb, c4, ah, mc, us) collide
+  //    with ordinary words and typos far too readily to fire silently. They
+  //    still work when the prefix is typed.
+  if (token.length < 3) return false;
+
+  // 2. A command that takes no input at all should BE the entire message.
+  //    "daily" runs; "daily routine sucks" is conversation. This is what
+  //    protects the costly and disruptive ones — work, beg, crime, search,
+  //    roll, balance, stop, skip, pause, resume, leave, shuffle — none of
+  //    which declare options.
+  if (args.length > 0 && !commandAcceptsInput(command)) return false;
+
+  return true;
+}
+
 async function replyError(message: Message, title: string, desc: string): Promise<void> {
   try {
     await message.reply({
@@ -104,19 +164,27 @@ export default new Event({
     if (!raw) return;
 
     const parts = raw.split(/\s+/);
-    const commandName = parts[0].toLowerCase();
+    // Trailing punctuation is stripped so "work?" and "balance!" behave like
+    // "work" and "balance". Without this the feature felt intermittent to
+    // no-prefix users for no discoverable reason.
+    const commandName = parts[0].toLowerCase().replace(/[^\p{L}\p{N}]+$/u, '');
     const args = parts.slice(1);
+    if (!commandName) return;
 
     if (!client.commands) return;
 
-    // Look up by primary name first, then by alias
-    let command = client.commands.get(commandName);
-    if (!command) {
-      command = [...client.commands.values()].find(
-        (c) => c.aliases.includes(commandName)
-      );
-    }
+    // A single lookup is correct AND sufficient: CommandHandler already
+    // registers every alias as its own key, and it deliberately SKIPS aliases
+    // that collide with a real command name. The old fallback re-scanned
+    // `c.aliases` and so resurrected exactly those skipped aliases,
+    // reintroducing the collision the loader had avoided — with first match in
+    // insertion order silently winning.
+    const command = client.commands.get(commandName);
     if (!command) return; // Unknown — stay silent
+
+    // Without a prefix there is no explicit signal of intent, so ordinary
+    // conversation was running commands. See noPrefixLooksIntentional.
+    if (!hasPrefix && !noPrefixLooksIntentional(command, commandName, args)) return;
 
     // ── Guards ────────────────────────────────────────────────────────────────
     // ── Premium / vote gating (mirrors the slash router) ────────────────────

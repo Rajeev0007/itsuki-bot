@@ -20,7 +20,7 @@
  */
 
 import { ActivityType, type Client, type PresenceStatusData } from 'discord.js';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import config from '../config/config';
 import logger from '../utils/Logger';
 import musicManager from './MusicManager';

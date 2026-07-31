@@ -256,6 +256,26 @@ const config = {
 
   /* Owners */
   owners: (process.env.BOT_OWNERS ?? '').split(',').map((id) => id.trim()).filter(Boolean),
+
+  /* Database */
+  mongo: {
+    /**
+     * Connection string. Required — the bot refuses to start without it rather
+     * than silently falling back to a local store, because a half-configured
+     * database is how data gets written somewhere nobody looks.
+     */
+    uri: process.env.MONGO_URI ?? '',
+    /**
+     * Database name. A URI may already name a database; this only applies when
+     * it does not.
+     */
+    dbName: process.env.MONGO_DB ?? 'itsuki',
+    /**
+     * Fail fast on a dead server instead of letting every command hang for the
+     * driver's 30s default.
+     */
+    serverSelectionTimeoutMS: Number(process.env.MONGO_TIMEOUT_MS ?? 8000),
+  },
 };
 
 export default config;

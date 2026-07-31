@@ -22,7 +22,7 @@ import {
 import { Command }  from '../structures/Command';
 import GifService   from '../services/GifService';
 import UserManager  from '../managers/UserManager';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import * as CB      from '../builders/ComponentBuilder';
 
 const socialDB = getStore('social');

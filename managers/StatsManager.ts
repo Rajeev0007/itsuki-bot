@@ -16,7 +16,7 @@
  *  - Unbounded growth. Only the last 30 days of daily buckets are kept.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 import logger from '../utils/Logger';
 
 const statsDB = getStore('stats');

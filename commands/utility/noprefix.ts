@@ -53,6 +53,10 @@ export default new Command({
         .addUserOption((o) =>
           o.setName('user').setDescription('The user to grant NoPrefix to.').setRequired(true)
         )
+        .addIntegerOption((o) =>
+          o.setName('days').setDescription('Expire after N days (omit for permanent).')
+            .setMinValue(1).setMaxValue(3650)
+        )
     )
     .addSubcommand((s) =>
       s.setName('remove')
@@ -94,22 +98,44 @@ export default new Command({
       if (target.bot) {
         return interaction.editReply(err('Cannot Add Bot', 'Bots cannot be granted NoPrefix.') as never);
       }
+      // Owners are covered by NoPrefixManager.has() itself, so there is
+      // nothing to store. This used to be an error saying owners "always have
+      // NoPrefix by default" while has() never actually checked for them —
+      // owners were the only group who could never get the perk at all.
       if (config.owners.includes(target.id)) {
-        return interaction.editReply(err('Already an Owner', 'Bot owners always have NoPrefix by default.') as never);
+        return interaction.editReply(ok(
+          'Already Covered',
+          `**${target.tag ?? target.username}** is a bot owner, and owners always have NoPrefix — nothing to add.`,
+        ) as never);
       }
 
-      const added = await NoPrefixManager.add(target.id, target.username);
-      if (!added) {
-        return interaction.editReply(
-          err('Already on List', `**${target.tag ?? target.username}** already has NoPrefix.`) as never
-        );
+      const days = interaction.options.getInteger('days');
+      const result = await NoPrefixManager.add(target.id, target.username, {
+        expiresAt: days ? Date.now() + days * 86_400_000 : null,
+        source: 'manual',
+        grantedBy: interaction.user.id,
+      });
+
+      if (!result.ok) {
+        return interaction.editReply(err('Could Not Grant', result.reason!) as never);
       }
 
+      const entry = result.entry!;
       return interaction.editReply(
         ok(
-          'NoPrefix Granted',
-          `**${target.tag ?? target.username}** can now run commands without the \`${config.prefix}\` prefix.\n\n` +
-          `-# Total users with NoPrefix: ${NoPrefixManager.count()}`,
+          result.extended ? 'NoPrefix Extended' : 'NoPrefix Granted',
+          [
+            `**${target.tag ?? target.username}** can now run commands without the \`${config.prefix}\` prefix.`,
+            entry.expiresAt === null
+              ? '**Expires:** never'
+              : `**Expires:** <t:${Math.floor(entry.expiresAt / 1000)}:R>`,
+            '',
+            '**Two limits apply without a prefix**, so ordinary chat cannot fire commands:',
+            '> Aliases shorter than 3 letters are ignored (`h`, `v`, `w`, `lb`…). They still work with the prefix.',
+            '> A command that takes no arguments must be the whole message — `daily` runs, `daily routine` does not.',
+            '',
+            `-# Users with NoPrefix: ${NoPrefixManager.count()} (owners not counted)`,
+          ].join('\n'),
         ) as never
       );
     }
@@ -117,11 +143,17 @@ export default new Command({
     // ── Remove ───────────────────────────────────────────────────────────────
     if (sub === 'remove') {
       const target = interaction.options.getUser('user', true);
-      const removed = await NoPrefixManager.remove(target.id);
-      if (!removed) {
-        return interaction.editReply(
-          err('Not on List', `**${target.tag ?? target.username}** does not have NoPrefix.`) as never
-        );
+      const result = await NoPrefixManager.remove(target.id);
+      if (!result.ok) {
+        return interaction.editReply(err(
+          result.reason === 'not-listed' ? 'Not on List' : 'Could Not Revoke',
+          result.reason === 'not-listed'
+            ? `**${target.tag ?? target.username}** does not have NoPrefix.`
+              + (config.owners.includes(target.id)
+                ? '\n-# They are a bot owner, so they keep it regardless — remove them from the owner list to change that.'
+                : '')
+            : result.reason!,
+        ) as never);
       }
 
       return interaction.editReply(
@@ -152,12 +184,31 @@ export default new Command({
         } as never);
       }
 
-      const lines = entries
-        .sort((a, b) => b.addedAt - a.addedAt)
-        .map((e, i) => {
-          const date = new Date(e.addedAt).toLocaleDateString('en-GB');
-          return `\`${String(i + 1).padStart(2, '0')}\` <@${e.userId}> — **${e.username}** • added ${date}`;
-        });
+      // Entries already arrive newest-first and expired ones are filtered out
+      // by the manager.
+      //
+      // The list is capped: a Components V2 message allows 4000 characters
+      // across all components, and an uncapped join() would throw on a long
+      // list instead of rendering anything at all.
+      const MAX_SHOWN = 25;
+      const shown = entries.slice(0, MAX_SHOWN);
+
+      const lines = shown.map((e, i) => {
+        const expiry = e.expiresAt === null
+          ? 'permanent'
+          : `expires <t:${Math.floor(e.expiresAt / 1000)}:R>`;
+        const origin = e.source === 'premium' ? ' · from premium' : '';
+        return [
+          `\`${String(i + 1).padStart(2, '0')}\` <@${e.userId}> — **${e.username}**`,
+          `> added <t:${Math.floor(e.addedAt / 1000)}:R> · ${expiry}${origin}`,
+        ].join('\n');
+      });
+
+      const footer = [
+        `-# ${entries.length} user${entries.length !== 1 ? 's' : ''} with NoPrefix`
+          + (entries.length > MAX_SHOWN ? ` (showing the ${MAX_SHOWN} newest)` : ''),
+        '-# Bot owners are not listed — they always have it.',
+      ].join('\n');
 
       return interaction.editReply({
         flags: IS_V2 as never,
@@ -176,9 +227,7 @@ export default new Command({
               new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
             )
             .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent(
-                `-# ${entries.length} user${entries.length !== 1 ? 's' : ''} with NoPrefix`
-              )
+              new TextDisplayBuilder().setContent(footer)
             ),
         ],
       } as never);

@@ -20,7 +20,7 @@ import UserManager from '../managers/UserManager';
 import fmt from './Formatter';
 import config from '../config/config';
 import { EMOJI as E } from './Constants';
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
 
 const gamblingDB = getStore('gambling');
 

@@ -6,7 +6,7 @@ import {
 } from 'discord.js';
 import { Command } from '../../structures/Command';
 import * as CB from '../../builders/ComponentBuilder';
-import { getStore } from '../../database/JsonStore';
+import { getStore } from '../../database/Store';
 import logger from '../../utils/Logger';
 
 const guildsDB = getStore('guilds');

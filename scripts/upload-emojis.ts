@@ -1,7 +1,7 @@
 /**
  * @file upload-emojis.ts
  * @description Uploads all emoji PNGs from the /emojis folder to the Discord Application
- * with clean, professional naming. Run: npx ts-node scripts/upload-emojis.ts
+ * with clean, professional naming. Run: npx tsx scripts/upload-emojis.ts
  */
 
 import 'dotenv/config';

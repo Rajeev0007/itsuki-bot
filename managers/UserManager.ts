@@ -3,7 +3,7 @@
  * @description Manages user profiles, XP, levels, achievements, and stats.
  */
 
-import { getStore }  from '../database/JsonStore';
+import { getStore }  from '../database/Store';
 import config        from '../config/config';
 import logger        from '../utils/Logger';
 

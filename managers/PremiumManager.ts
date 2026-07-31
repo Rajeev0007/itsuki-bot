@@ -14,7 +14,8 @@
  * is always correct and needs no scheduling.
  */
 
-import { getStore } from '../database/JsonStore';
+import { getStore } from '../database/Store';
+import NoPrefixManager from './NoPrefixManager';
 import config from '../config/config';
 import logger from '../utils/Logger';
 
@@ -43,12 +44,20 @@ export interface TierPerks {
   earningsMultiplier: number;
   /** Auction listing allowance. */
   maxListings: number;
+  /**
+   * Run commands without typing the prefix.
+   *
+   * Materialised into the no-prefix allowlist at grant time rather than read
+   * from here on the hot path: NoPrefixManager.has() runs on every message and
+   * has to stay synchronous, which an async premium lookup cannot be.
+   */
+  noPrefix: boolean;
 }
 
 export const TIERS: Record<PremiumTier, TierPerks> = {
-  none:  { label: 'Free',    cooldownMultiplier: 1,    bypassVoteLock: false, bonusRolls: 0, earningsMultiplier: 1,    maxListings: config.cards.maxListings },
-  basic: { label: 'Premium', cooldownMultiplier: 0.5,  bypassVoteLock: true,  bonusRolls: 5, earningsMultiplier: 1.25, maxListings: config.cards.maxListings * 2 },
-  plus:  { label: 'Premium+', cooldownMultiplier: 0.25, bypassVoteLock: true,  bonusRolls: 15, earningsMultiplier: 1.5,  maxListings: config.cards.maxListings * 4 },
+  none:  { label: 'Free',    cooldownMultiplier: 1,    bypassVoteLock: false, bonusRolls: 0, earningsMultiplier: 1,    maxListings: config.cards.maxListings,     noPrefix: false },
+  basic: { label: 'Premium', cooldownMultiplier: 0.5,  bypassVoteLock: true,  bonusRolls: 5, earningsMultiplier: 1.25, maxListings: config.cards.maxListings * 2, noPrefix: true },
+  plus:  { label: 'Premium+', cooldownMultiplier: 0.25, bypassVoteLock: true,  bonusRolls: 15, earningsMultiplier: 1.5,  maxListings: config.cards.maxListings * 4, noPrefix: true },
 };
 
 /** True when a grant is still valid. */
@@ -146,6 +155,14 @@ const PremiumManager = {
   async revokeUser(userId: string): Promise<boolean> {
     const had = Boolean(await premiumDB.get(`users.${userId}`));
     if (had) await premiumDB.delete(`users.${userId}`);
+
+    // The no-prefix perk is a separate stored grant (see TierPerks.noPrefix),
+    // so revoking premium has to clear it as well — otherwise the perk outlives
+    // the grant that paid for it. Manually-added entries are left alone: an
+    // owner who granted no-prefix by hand did not intend premium to own it.
+    const np = NoPrefixManager.entry(userId);
+    if (np?.source === 'premium') await NoPrefixManager.remove(userId);
+
     return had;
   },
 
