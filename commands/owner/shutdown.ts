@@ -14,6 +14,7 @@ import logger       from '../../utils/Logger';
 import * as CB       from '../../builders/ComponentBuilder';
 import StatsManager  from '../../managers/StatsManager';
 import CardManager   from '../../managers/CardManager';
+import RecordingManager from '../../managers/RecordingManager';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
 
@@ -48,6 +49,13 @@ export default new Command({
     // Close any in-progress voice sessions so their elapsed time is banked too.
     try {
       await CardManager.expireListings();
+    } catch { /* non-fatal */ }
+
+    // Tear down voice recordings so connections aren't orphaned on exit, and
+    // participants aren't left looking at a "recording in progress" notice.
+    try {
+      const stopped = await RecordingManager.stopAll();
+      if (stopped) logger.info(`[Shutdown] Stopped ${stopped} active recording(s).`);
     } catch { /* non-fatal */ }
 
     setTimeout(() => {
