@@ -45,7 +45,7 @@ export default new Event({
     const STORES = [
       'users', 'economy', 'inventory', 'pets', 'gambling',
       'guilds', 'social', 'actions', 'profiles', 'moderation',
-      'cards', 'auctions', 'stats',
+      'cards', 'auctions', 'stats', 'settings', 'backups',
     ];
     setInterval(async () => {
       for (const name of STORES) {
