@@ -66,6 +66,8 @@ export default new Command({
     .setDescription('Challenge someone to Tic-Tac-Toe.')
     .addUserOption((o) => o.setName('opponent').setDescription('Who do you want to play against?').setRequired(true)),
   category: 'games',
+  // Requires a second human player who can click the board.
+  guildOnly: true,
   cooldown: 5000,
 
   async execute(interaction: ChatInputCommandInteraction) {

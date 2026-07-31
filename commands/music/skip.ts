@@ -9,6 +9,8 @@ export default new Command({
     .setDescription('Skip the current track (or multiple tracks).')
     .addIntegerOption((o) => o.setName('amount').setDescription('Number of tracks to skip').setMinValue(1).setMaxValue(100)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, session, player } = musicCheck(interaction, music, { needsPlaying: true });

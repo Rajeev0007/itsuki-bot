@@ -10,6 +10,8 @@ export default new Command({
     .setDescription('Set or check the playback volume.')
     .addIntegerOption((o) => o.setName('level').setDescription('Volume level (1–150)').setMinValue(1).setMaxValue(150)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, player } = musicCheck(interaction, music, { needsQueue: true });

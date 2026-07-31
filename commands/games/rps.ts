@@ -47,12 +47,19 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 
-    const opponentUser = interaction.options.getUser('opponent');
-    const vsBot = !opponentUser || opponentUser.bot;
+    const requestedOpponent = interaction.options.getUser('opponent');
 
-    if (opponentUser && opponentUser.id === interaction.user.id) {
+    if (requestedOpponent && requestedOpponent.id === interaction.user.id) {
       return interaction.editReply(CB.errorResponse('Invalid Opponent', "You can't play against yourself.") as never);
     }
+
+    // In a DM the challenged user has no access to this message, so their half
+    // of the game could never be played — fall back to the bot opponent and say
+    // so, rather than hanging until the collector expires.
+    const inDM = !interaction.guild;
+    const opponentUnreachable = Boolean(requestedOpponent) && inDM;
+    const opponentUser = opponentUnreachable ? null : requestedOpponent;
+    const vsBot = !opponentUser || opponentUser.bot;
 
     const gameId = `${interaction.user.id}${Date.now()}`;
     const p1Id = interaction.user.id;
@@ -68,9 +75,12 @@ export default new Command({
         vsBot ? `**${p1Name}** vs the bot` : `**${p1Name}** vs **${p2Name}**`,
       ].join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+        opponentUnreachable
+          ? `-# ${requestedOpponent!.username} can't be challenged in a DM, so you're playing the bot.`
+          : '',
         vsBot ? 'Make your move.' : 'Both players: pick your move (kept secret until both have chosen).',
-      ))
+      ].filter(Boolean).join('\n')))
       .addActionRowComponents(buildChoiceRow(gameId));
 
     const msg = await interaction.editReply({ components: [container] });

@@ -23,6 +23,8 @@ interface RawCommand {
   default_member_permissions?: string | null;
   dm_permission?: boolean;
   nsfw?: boolean;
+  /** Where the command may be used: 0 = Guild, 1 = Bot DM, 2 = Private channel. */
+  contexts?: number[] | null;
 }
 
 // ── Load local commands from commands/ ────────────────────────────────────────
@@ -67,8 +69,10 @@ function normalize(cmd: unknown): string {
   const STRIP = new Set([
     // Discord bookkeeping
     'id', 'application_id', 'version', 'guild_id',
-    // Newer/echo-only permission + context fields the builders don't send
-    'contexts', 'integration_types', 'default_permission', 'handler',
+    // Echo-only fields we never send, so comparing them is a permanent diff
+    'integration_types', 'default_permission', 'handler',
+    // Superseded by `contexts`; Discord stops reporting it once contexts are set
+    'dm_permission',
     // Localization maps — echoed back as null when unset
     'name_localizations', 'description_localizations',
   ]);
@@ -108,8 +112,12 @@ function normalize(cmd: unknown): string {
     description: base.description ?? '',
     options: base.options ?? [],
     default_member_permissions: base.default_member_permissions ?? null,
-    dm_permission: base.dm_permission ?? true,
     nsfw: base.nsfw ?? false,
+    // `contexts` decides whether a command is usable in DMs, so it MUST take
+    // part in the diff — otherwise a change to a command's DM availability
+    // would be silently skipped and never registered. Sorted because the array
+    // order carries no meaning.
+    contexts: [...(base.contexts ?? [])].map(Number).sort((a, b) => a - b),
   };
 
   return JSON.stringify(clean(normalised));

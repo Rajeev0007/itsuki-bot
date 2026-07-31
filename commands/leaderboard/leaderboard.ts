@@ -8,6 +8,7 @@ import UserManager from '../../managers/UserManager';
 import * as CB from '../../builders/ComponentBuilder';
 import fmt from '../../utils/Formatter';
 import { MEDALS } from '../../utils/Constants';
+import { resolveDisplayNames } from '../../utils/UserResolver';
 
 const CATS = [
   { id: 'netWorth', label: 'Net Worth', field: (v: number) => fmt.coins(v) },
@@ -28,12 +29,14 @@ export default new Command({
     const cat = CATS.find((c) => c.id === catId) ?? CATS[0];
     const entries = await UserManager.getLeaderboard(cat.id, 10);
     if (!entries.length) return interaction.editReply({ ...CB.errorResponse('No Data', 'No leaderboard data yet.') } as never);
-    const lines = await Promise.all(entries.map(async (e, i) => {
-      let name: string;
-      try { const m = await interaction.guild!.members.fetch(e.userId).catch(() => null); name = m?.displayName ?? `User#${e.userId.slice(-4)}`; }
-      catch { name = `User#${e.userId.slice(-4)}`; }
-      return `${MEDALS[i] ?? `**${i + 1}.**`} **${name}** — ${cat.field(e.value)}`;
-    }));
+    // Resolved without assuming a guild, so this also works in DMs.
+    const names = await resolveDisplayNames(
+      entries.map((e) => e.userId),
+      { guild: interaction.guild, client: interaction.client },
+    );
+    const lines = entries.map((e, i) =>
+      `${MEDALS[i] ?? `**${i + 1}.**`} **${names[i]}** — ${cat.field(e.value)}`,
+    );
     const c = new ContainerBuilder()
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Leaderboard — ${cat.label}`))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))

@@ -12,6 +12,8 @@ export default new Command({
       o.setName('channel').setDescription('Voice channel to lock to. Omit to clear the lock.')
         .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const channel = interaction.options.get('channel')?.channel as { id: string; permissionsFor?: (m: unknown) => { has: (f: bigint) => boolean } } | null;

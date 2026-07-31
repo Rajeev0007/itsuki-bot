@@ -27,6 +27,8 @@ export default new Command({
     .addSubcommand((s) => s.setName('about').setDescription('Set an about description.').addStringOption((o) => o.setName('text').setDescription('About text (empty to reset)').setMaxLength(300)))
     .addSubcommand((s) => s.setName('reset').setDescription('Reset all branding settings.')),
   category: 'utility',
+  // Reads and writes per-guild branding settings.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     if (!interaction.guild) return interaction.editReply({ ...CB.errorResponse('Server Only', 'Use in a server.') } as never);

@@ -82,9 +82,14 @@ export default new Event({
 
     // ── Guards ────────────────────────────────────────────────────────────────
 
+    // Backstop only: guild-only commands declare `contexts: [Guild]`, so Discord
+    // shouldn't even offer them in DMs. This still catches stale registrations.
     if (command.guildOnly && !guild) {
       await cmdInteraction.reply({
-        ...CB.errorResponse('Server Only', 'This command can only be used inside a server.'),
+        ...CB.errorResponse(
+          'Server Only',
+          `\`/${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
+        ),
         flags: V2_EPHEMERAL,
       } as never).catch(() => {});
       return;

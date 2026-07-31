@@ -18,6 +18,8 @@ export default new Command({
     .setDescription('Seek to a position in the current track.')
     .addStringOption((o) => o.setName('position').setDescription('Time (e.g. 1:30 or 90)').setRequired(true)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, session, player } = musicCheck(interaction, music, { needsPlaying: true });

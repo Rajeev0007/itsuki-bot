@@ -45,7 +45,10 @@ export default new Event({
     commands?: Collection<string, Command>;
   }) {
     if (message.author.bot) return;
-    if (!message.guild) return;
+    // NOTE: DMs are deliberately allowed through. This used to return early on
+    // `!message.guild`, which blocked every prefix command in DMs regardless of
+    // the command's own guildOnly setting. Individual commands are still gated
+    // by the `command.guildOnly` guard further down.
 
     const userId = message.author.id;
     const prefix = config.prefix;
@@ -111,7 +114,11 @@ export default new Event({
 
     // ── Guards ────────────────────────────────────────────────────────────────
     if (command.guildOnly && !message.guild)
-      return void replyError(message, 'Server Only', 'This command can only be used inside a server.');
+      return void replyError(
+        message,
+        'Server Only',
+        `\`${prefix}${command.name}\` needs a server — it relies on voice channels, server settings, or other members. Most other commands work here in DMs.`,
+      );
 
     if (command.ownerOnly && !config.owners.includes(userId))
       return void replyError(message, 'Owner Only', 'This command is restricted to bot owners.');
@@ -127,7 +134,10 @@ export default new Event({
     if (command.maintenance)
       return void replyError(message, 'Maintenance', 'This command is temporarily disabled.');
 
-    if (command.permissions.length) {
+    // Permission checks only make sense inside a guild — in a DM there is no
+    // member and no role permissions, and `message.member` is null, so an
+    // unguarded check would report every permission as missing.
+    if (command.permissions.length && message.guild) {
       const missing = command.permissions.filter(
         (p) => !message.member?.permissions.has(p as never)
       );

@@ -45,6 +45,22 @@ function isOwner(userId: string): boolean {
   return config.owners.includes(userId);
 }
 
+/**
+ * Commands that only work inside a server (they need a voice channel, guild
+ * settings, or a second human player). Kept in sync with the server-only flag
+ * declared on those commands, so DM users aren't shown things they can't run.
+ */
+const SERVER_ONLY = new Set([
+  'play', 'queue', 'skip', 'stop', 'leave', 'pause', 'resume', 'loop',
+  'nowplaying', 'seek', 'shuffle', 'volume', '247', 'autoplay', 'setvoice',
+  'botbrand', 'tictactoe',
+]);
+
+/** Lists a category's server-only commands, for the DM notice. */
+function serverOnlyIn(commands: string[]): string[] {
+  return commands.filter((c) => SERVER_ONLY.has(c));
+}
+
 // ── Builders ──────────────────────────────────────────────────────────────────
 
 function padName(name: string, width: number): string {
@@ -61,7 +77,13 @@ function renderCommandList(commands: string[], descMap: Map<string, string>): st
   return '```\n' + lines.join('\n') + '\n```';
 }
 
-function buildOverview(botName: string, avatarUrl: string, about: string | null | undefined, viewerIsOwner: boolean): ContainerBuilder {
+function buildOverview(
+  botName: string,
+  avatarUrl: string,
+  about: string | null | undefined,
+  viewerIsOwner: boolean,
+  inDM = false,
+): ContainerBuilder {
   const allCats = viewerIsOwner
     ? [...Object.entries(CATEGORIES), ['owner', OWNER_CATEGORY] as [string, typeof OWNER_CATEGORY]]
     : Object.entries(CATEGORIES);
@@ -90,16 +112,22 @@ function buildOverview(botName: string, avatarUrl: string, about: string | null 
     )
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
     .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `-# ${total} commands total · Use \`/command\` or \`${config.prefix}command\` · Select a category below`
-      )
+      new TextDisplayBuilder().setContent([
+        `-# ${total} commands total · Use \`/command\` or \`${config.prefix}command\` · Select a category below`,
+        inDM ? '-# You\'re in DMs — Music, Tic-Tac-Toe and Bot Branding need a server.' : '',
+      ].filter(Boolean).join('\n'))
     );
 }
 
-function buildCategory(key: string, descMap: Map<string, string>, viewerIsOwner: boolean): ContainerBuilder {
+function buildCategory(
+  key: string,
+  descMap: Map<string, string>,
+  viewerIsOwner: boolean,
+  inDM = false,
+): ContainerBuilder {
   const cat = key === 'owner' && viewerIsOwner ? OWNER_CATEGORY : CATEGORIES[key];
 
-  return new ContainerBuilder()
+  const container = new ContainerBuilder()
     .setAccentColor(cat.color)
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`# ${cat.label}\n${cat.desc}`)
@@ -107,7 +135,21 @@ function buildCategory(key: string, descMap: Map<string, string>, viewerIsOwner:
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(renderCommandList(cat.commands, descMap))
-    )
+    );
+
+  // Called from a DM: point out which of these need a server, so nobody tries
+  // to run /play here and wonders why it doesn't respond.
+  const blocked = inDM ? serverOnlyIn(cat.commands) : [];
+  if (blocked.length) {
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+        blocked.length === cat.commands.length
+          ? '-# ⚠️ These commands need a server and are unavailable in DMs.'
+          : `-# ⚠️ Server only, unavailable here: ${blocked.map((c) => `\`/${c}\``).join(', ')}`,
+      ));
+  }
+
+  return container
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
@@ -187,9 +229,11 @@ export default new Command({
     // Guard against a user requesting the owner category directly without permission
     const initCat = initCatRaw === 'owner' && !viewerIsOwner ? 'overview' : initCatRaw;
 
+    const inDM = !interaction.guild;
+
     const container = initCat === 'overview'
-      ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner)
-      : buildCategory(initCat, descMap, viewerIsOwner);
+      ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
+      : buildCategory(initCat, descMap, viewerIsOwner, inDM);
 
     container.addActionRowComponents(buildSelectMenu(initCat, viewerIsOwner));
     const msg = await interaction.editReply({ components: [container] });
@@ -218,8 +262,8 @@ export default new Command({
       const safeValue = value === 'owner' && !viewerIsOwner ? 'overview' : value;
       currentCat = safeValue;
       const newContainer = safeValue === 'overview'
-        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner)
-        : buildCategory(safeValue, descMap, viewerIsOwner);
+        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
+        : buildCategory(safeValue, descMap, viewerIsOwner, inDM);
 
       newContainer.addActionRowComponents(buildSelectMenu(safeValue, viewerIsOwner));
       await i.update({
@@ -232,8 +276,8 @@ export default new Command({
       // Disable the menu when the 2-minute window closes — keep whatever
       // category the user last navigated to, not the original one.
       const disabledContainer = currentCat === 'overview'
-        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner)
-        : buildCategory(currentCat, descMap, viewerIsOwner);
+        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
+        : buildCategory(currentCat, descMap, viewerIsOwner, inDM);
       disabledContainer.addActionRowComponents(buildSelectMenu(currentCat, viewerIsOwner, true));
       interaction.editReply({ components: [disabledContainer] }).catch(() => {});
     });

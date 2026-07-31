@@ -11,6 +11,8 @@ export default new Command({
     .addStringOption((o) =>
       o.setName('query').setDescription('Song name or URL (YouTube / SoundCloud / Spotify)').setRequired(true)),
   category: 'music',
+  // Voice playback needs a guild voice channel — not available in DMs.
+  guildOnly: true,
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
