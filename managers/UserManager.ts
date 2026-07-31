@@ -62,13 +62,57 @@ function defaultEconomy(userId: string): EconomyData {
   };
 }
 
+/** Coerces a possibly-missing stored timestamp into a usable number. */
+function ts(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 const UserManager = {
+  /**
+   * Returns the user record with defaults merged in.
+   *
+   * Merging matters: records written by older versions of the bot are missing
+   * fields added later, and reading an absent field straight out of the store
+   * yields `undefined`. Arithmetic on that produces NaN, and `NaN > 0` is
+   * false — which silently disabled cooldowns and stat checks.
+   */
   async getUser(userId: string, guildId = 'global'): Promise<UserData> {
-    return usersDB.ensure(`${userId}`, defaultUser(userId, guildId)) as Promise<UserData>;
+    const defaults = defaultUser(userId, guildId);
+    const stored = (await usersDB.get(`${userId}`)) as Partial<UserData> | undefined;
+    if (!stored || typeof stored !== 'object') {
+      await usersDB.set(`${userId}`, defaults);
+      return defaults;
+    }
+    return {
+      ...defaults,
+      ...stored,
+      stats: { ...defaults.stats, ...(stored.stats ?? {}) },
+    } as UserData;
   },
 
+  /** Returns the economy record with defaults merged in (see getUser). */
   async getEconomy(userId: string): Promise<EconomyData> {
-    return economyDB.ensure(`${userId}`, defaultEconomy(userId)) as Promise<EconomyData>;
+    const defaults = defaultEconomy(userId);
+    const stored = (await economyDB.get(`${userId}`)) as Partial<EconomyData> | undefined;
+    if (!stored || typeof stored !== 'object') {
+      await economyDB.set(`${userId}`, defaults);
+      return defaults;
+    }
+    const merged = { ...defaults, ...stored } as EconomyData;
+    // Normalise every cooldown timestamp so callers can do plain arithmetic.
+    merged.lastDaily   = ts(merged.lastDaily);
+    merged.lastWeekly  = ts(merged.lastWeekly);
+    merged.lastMonthly = ts(merged.lastMonthly);
+    merged.lastYearly  = ts(merged.lastYearly);
+    merged.lastWork    = ts(merged.lastWork);
+    merged.lastCrime   = ts(merged.lastCrime);
+    merged.lastRob     = ts(merged.lastRob);
+    merged.lastBeg     = ts(merged.lastBeg);
+    merged.lastSearch  = ts(merged.lastSearch);
+    merged.wallet      = Number(merged.wallet) || 0;
+    merged.bank        = Number(merged.bank) || 0;
+    return merged;
   },
 
   async updateUsername(userId: string, username: string): Promise<void> {
@@ -76,23 +120,70 @@ const UserManager = {
     if (has) await usersDB.set(`${userId}.username`, username);
   },
 
+  /**
+   * XP required to advance FROM `level` to `level + 1`.
+   *
+   * Every caller must use the same convention — display code used to call
+   * `xpNeeded(level + 1)` while the level-up check used `xpNeeded(level)`, so
+   * progress bars never lined up with the point a user actually levelled.
+   */
   xpNeeded(level: number): number {
-    return config.economy.xpToLevelUp(level);
+    return config.economy.xpToLevelUp(Math.max(1, level));
   },
 
   async addXp(userId: string, amount: number): Promise<{ leveledUp: boolean; newLevel?: number }> {
-    await usersDB.ensure(`${userId}`, defaultUser(userId, 'global'));
-    await usersDB.add(`${userId}.xp`, amount);
-    await usersDB.add(`${userId}.totalXp`, amount);
-    const user = await usersDB.get(`${userId}`) as UserData;
-    const needed = this.xpNeeded(user.level);
-    if (user.xp >= needed) {
-      const newLevel = user.level + 1;
-      await usersDB.set(`${userId}.level`, newLevel);
-      await usersDB.set(`${userId}.xp`, user.xp - needed);
-      return { leveledUp: true, newLevel };
+    const gain = Math.max(0, Math.floor(Number(amount) || 0));
+    if (gain === 0) return { leveledUp: false };
+
+    const user = await this.getUser(userId);
+    const maxLevel = config.economy.maxLevel;
+
+    let level = Math.max(1, Math.floor(Number(user.level) || 1));
+    let xp = Math.max(0, Math.floor(Number(user.xp) || 0)) + gain;
+    let leveledUp = false;
+
+    // Loop: a single large XP grant can span several levels. The old code only
+    // ever advanced one level per call and discarded the rest of the overflow.
+    while (level < maxLevel) {
+      const needed = this.xpNeeded(level);
+      if (needed <= 0 || xp < needed) break;
+      xp -= needed;
+      level++;
+      leveledUp = true;
     }
-    return { leveledUp: false };
+    // At max level XP stops accumulating instead of growing forever.
+    if (level >= maxLevel) {
+      level = maxLevel;
+      xp = Math.min(xp, this.xpNeeded(maxLevel));
+    }
+
+    await usersDB.set(`${userId}.level`, level);
+    await usersDB.set(`${userId}.xp`, xp);
+    await usersDB.add(`${userId}.totalXp`, gain);
+
+    return leveledUp ? { leveledUp: true, newLevel: level } : { leveledUp: false };
+  },
+
+  /** Permanent earnings multiplier granted by prestige (1.0 = no bonus). */
+  async earningsMultiplier(userId: string): Promise<number> {
+    const user = await this.getUser(userId);
+    const prestige = Math.max(0, Number(user.prestige) || 0);
+    return 1 + prestige * config.economy.prestigeBonus;
+  },
+
+  /**
+   * Credits earned income, applying the prestige bonus the UI advertises.
+   * Returns the amount actually credited so callers can report the real figure.
+   *
+   * Use this for income (work/daily/crime/…); use addWallet directly for
+   * gambling payouts, transfers and fines, which must not be scaled.
+   */
+  async addEarnings(userId: string, baseAmount: number): Promise<number> {
+    const base = Math.max(0, Math.floor(Number(baseAmount) || 0));
+    if (base === 0) return 0;
+    const total = Math.floor(base * (await this.earningsMultiplier(userId)));
+    await this.addWallet(userId, total);
+    return total;
   },
 
   async getBalance(userId: string): Promise<{ wallet: number; bank: number }> {
@@ -100,31 +191,50 @@ const UserManager = {
     return { wallet: eco.wallet, bank: eco.bank };
   },
 
+  /**
+   * Adds to (or subtracts from) the wallet, clamped to `[0, maxWallet]`.
+   *
+   * The clamp is the important part: nothing previously stopped a wallet going
+   * negative, and `maxWallet` was only ever enforced inside /withdraw.
+   * totalEarned/totalSpent are updated from the delta that actually landed, so
+   * a clamped transaction no longer inflates lifetime totals.
+   */
   async addWallet(userId: string, amount: number): Promise<number> {
+    const delta = Math.floor(Number(amount) || 0);
     await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    const newWallet = await economyDB.add(`${userId}.wallet`, amount);
-    if (amount > 0) await economyDB.add(`${userId}.totalEarned`, amount);
-    else            await economyDB.add(`${userId}.totalSpent`, -amount);
+    const current = Number(await economyDB.get(`${userId}.wallet`, 0)) || 0;
+    const next = Math.max(0, Math.min(current + delta, config.economy.maxWallet));
+    const applied = next - current;
+
+    await economyDB.set(`${userId}.wallet`, next);
+    if (applied > 0)      await economyDB.add(`${userId}.totalEarned`, applied);
+    else if (applied < 0) await economyDB.add(`${userId}.totalSpent`, -applied);
     await this._updateNetWorth(userId);
-    return newWallet;
+    return next;
   },
 
   async setWallet(userId: string, amount: number): Promise<void> {
     await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    await economyDB.set(`${userId}.wallet`, Math.max(0, amount));
+    const value = Math.max(0, Math.min(Math.floor(Number(amount) || 0), config.economy.maxWallet));
+    await economyDB.set(`${userId}.wallet`, value);
     await this._updateNetWorth(userId);
   },
 
+  /** Adds to (or subtracts from) the bank, clamped to `[0, bankLimit]`. */
   async addBank(userId: string, amount: number): Promise<number> {
+    const delta = Math.floor(Number(amount) || 0);
     await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    const newBank = await economyDB.add(`${userId}.bank`, amount);
+    const current = Number(await economyDB.get(`${userId}.bank`, 0)) || 0;
+    const next = Math.max(0, Math.min(current + delta, config.economy.bankLimit));
+    await economyDB.set(`${userId}.bank`, next);
     await this._updateNetWorth(userId);
-    return newBank;
+    return next;
   },
 
   async setBank(userId: string, amount: number): Promise<void> {
     await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    await economyDB.set(`${userId}.bank`, Math.max(0, amount));
+    const value = Math.max(0, Math.min(Math.floor(Number(amount) || 0), config.economy.bankLimit));
+    await economyDB.set(`${userId}.bank`, value);
     await this._updateNetWorth(userId);
   },
 
@@ -189,6 +299,13 @@ const UserManager = {
     return newPrestige;
   },
 
+  /**
+   * Records a social action and bumps the `socialActions` stat.
+   *
+   * The stat bump is what makes the "Social Butterfly" achievement reachable —
+   * nothing incremented `socialActions`, so the check in checkAchievements
+   * could never fire.
+   */
   async recordSocialAction(userId: string, targetId: string, action: string): Promise<void> {
     await actionsDB.ensure(userId, {});
     const key = `${userId}.${action}`;
@@ -201,6 +318,7 @@ const UserManager = {
       if (targets.length > 5) targets.splice(5);
       await actionsDB.set(`${key}.targets`, targets);
     }
+    await this.incrementStat(userId, 'socialActions');
   },
 
   async getSocialStats(userId: string, action: string): Promise<{ count: number; lastUsed: number; targets: string[] }> {
@@ -209,22 +327,20 @@ const UserManager = {
   },
 
   async getLeaderboard(type = 'netWorth', limit = 10): Promise<Array<{ userId: string; value: number }>> {
+    const rank = (entries: Array<[string, unknown]>, pick: (data: Record<string, unknown>) => unknown) =>
+      entries
+        .filter(([, data]) => data !== null && typeof data === 'object')
+        .map(([id, data]) => ({ userId: id, value: Number(pick(data as Record<string, unknown>)) || 0 }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, limit);
+
     if (type === 'level') {
-      const entries = await usersDB.all();
-      return entries
-        .map(([id, data]) => ({ userId: id, value: (data as UserData).level ?? 1 }))
-        .sort((a, b) => b.value - a.value).slice(0, limit);
+      return rank(await usersDB.all(), (d) => d.level ?? 1);
     }
     if (type === 'gamesWon') {
-      const entries = await usersDB.all();
-      return entries
-        .map(([id, data]) => ({ userId: id, value: (data as UserData).stats?.gamesWon ?? 0 }))
-        .sort((a, b) => b.value - a.value).slice(0, limit);
+      return rank(await usersDB.all(), (d) => (d.stats as Record<string, unknown> | undefined)?.gamesWon ?? 0);
     }
-    const entries = await economyDB.all();
-    return entries
-      .map(([id, data]) => ({ userId: id, value: (data as Record<string, number>)[type] ?? 0 }))
-      .sort((a, b) => b.value - a.value).slice(0, limit);
+    return rank(await economyDB.all(), (d) => d[type] ?? 0);
   },
 
   async getLevelLeaderboard(limit = 10): Promise<Array<{ userId: string; level: number; xp: number }>> {

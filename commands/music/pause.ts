@@ -13,6 +13,6 @@ export default new Command({
     const p = player as { paused: boolean; pause: (v: boolean) => Promise<void> };
     if (p.paused) return interaction.editReply(musicError('Playback is already paused. Use `/resume` to unpause.') as never);
     await p.pause(true);
-    return interaction.editReply(musicSuccess(' Paused playback.') as never);
+    return interaction.editReply(musicSuccess('⏸️ Paused playback.') as never);
   },
 });

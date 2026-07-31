@@ -121,12 +121,12 @@ export default new Command({
 
     collector.on('collect', async (i: ButtonInteraction) => {
       if (choices[i.user.id]) {
-        await i.reply({ content: 'You already locked in your choice.', ephemeral: true });
+        await i.reply({ content: 'You already locked in your choice.', flags: MessageFlags.Ephemeral });
         return;
       }
       const choice = i.customId.split(':')[2] as Choice;
       choices[i.user.id] = choice;
-      await i.reply({ content: `Locked in **${choice}**. Waiting for the other player…`, ephemeral: true });
+      await i.reply({ content: `Locked in **${choice}**. Waiting for the other player…`, flags: MessageFlags.Ephemeral });
 
       if (choices[p1Id] && p2Id && choices[p2Id]) {
         (collector as unknown as { stop: () => void }).stop();

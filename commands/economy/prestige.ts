@@ -43,7 +43,7 @@ export default new Command({
     collector.on('collect', async (i) => {
       if (i.customId.startsWith('prestige_confirm')) {
         const newPrestige = await UserManager.prestige(interaction.user.id);
-        if (!newPrestige) { await i.update({ ...CB.errorResponse('Failed', 'Prestige failed unexpectedly.'), components: [] }); return; }
+        if (!newPrestige) { await i.update(CB.errorResponse('Failed', 'Prestige failed unexpectedly.')); return; }
         const result = new ContainerBuilder()
           .addSectionComponents(new SectionBuilder().addTextDisplayComponents(
             new TextDisplayBuilder().setContent([`# Prestige ${newPrestige} Achieved!`, `${interaction.user} has been reborn!`].join('\n'))
@@ -55,8 +55,19 @@ export default new Command({
           ].join('\n')));
         await i.update({ components: [result] });
       } else {
-        await i.update({ ...CB.successResponse('Cancelled', 'Prestige cancelled. Keep grinding!'), components: [] });
+        await i.update(CB.successResponse('Cancelled', 'Prestige cancelled. Keep grinding!'));
       }
     });
+
+    // Without this the confirm buttons stay live-looking forever after the
+    // 30 s window closes, and clicking them just shows "interaction failed".
+    (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void })
+      .on('end', (_c, reason) => {
+        if (reason === 'time') {
+          interaction.editReply(
+            CB.errorResponse('Prestige Expired', 'You did not confirm in time. Run `/prestige` again when ready.'),
+          ).catch(() => {});
+        }
+      });
   },
 });

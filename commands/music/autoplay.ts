@@ -13,8 +13,8 @@ export default new Command({
     if (session) session.autoplay = enabled;
     return interaction.editReply(musicSuccess(
       enabled
-        ? ' **Autoplay enabled.** I will queue a related song when the queue ends.'
-        : ' **Autoplay disabled.** Playback will stop when the queue runs out.'
+        ? '🎶 **Autoplay enabled.** I will queue a related song when the queue ends.'
+        : '🎶 **Autoplay disabled.** Playback will stop when the queue runs out.'
     ) as never);
   },
 });

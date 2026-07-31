@@ -99,7 +99,7 @@ export default new Command({
 
     collector.on('collect', async (i: ButtonInteraction) => {
       if (i.user.id !== turn) {
-        await i.reply({ content: "It's not your turn.", ephemeral: true });
+        await i.reply({ content: "It's not your turn.", flags: MessageFlags.Ephemeral });
         return;
       }
 

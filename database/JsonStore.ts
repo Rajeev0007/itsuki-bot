@@ -7,6 +7,24 @@
 import fs   from 'fs/promises';
 import path from 'path';
 
+/**
+ * Keys that must never be written through, or a crafted key path could mutate
+ * `Object.prototype` for the whole process. Several key paths are built from
+ * user-supplied strings (shop item ids, social action names), so writes are
+ * validated rather than trusted.
+ */
+const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function splitKeyPath(keyPath: string): string[] {
+  const parts = String(keyPath).split('.');
+  for (const part of parts) {
+    if (FORBIDDEN_KEYS.has(part)) {
+      throw new Error(`[JsonStore] Refusing to write unsafe key path: "${keyPath}"`);
+    }
+  }
+  return parts;
+}
+
 export class JsonStore {
   private _path:    string;
   private _dir:     string;
@@ -76,7 +94,7 @@ export class JsonStore {
 
   async set(keyPath: string, value: unknown): Promise<void> {
     await this._ensureReady();
-    const parts = keyPath.split('.');
+    const parts = splitKeyPath(keyPath);
     let node = this._cache!;
     for (let i = 0; i < parts.length - 1; i++) {
       if (node[parts[i]] == null || typeof node[parts[i]] !== 'object') {
@@ -90,7 +108,7 @@ export class JsonStore {
 
   async delete(keyPath: string): Promise<void> {
     await this._ensureReady();
-    const parts = keyPath.split('.');
+    const parts = splitKeyPath(keyPath);
     let node: Record<string, unknown> = this._cache!;
     for (let i = 0; i < parts.length - 1; i++) {
       if (node[parts[i]] == null) return;

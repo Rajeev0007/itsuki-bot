@@ -49,7 +49,7 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
   }
   if (rawId.startsWith('music_skip:')) {
     await p.skip();
-    await interaction.update(musicSuccess(' Skipped.') as Parameters<typeof interaction.update>[0]);
+    await interaction.update(musicSuccess('⏭️ Skipped.') as Parameters<typeof interaction.update>[0]);
     return;
   }
   if (rawId.startsWith('music_loop:')) {
@@ -61,7 +61,7 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
   }
   if (rawId.startsWith('music_stop:')) {
     await music.destroyPlayer(guildId);
-    await interaction.update(musicSuccess(' Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0]);
+    await interaction.update(musicSuccess('⏹️ Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0]);
     return;
   }
 }

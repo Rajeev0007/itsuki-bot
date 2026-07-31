@@ -16,7 +16,10 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const target = interaction.options.get('user')?.user ?? interaction.user;
     const [user, eco] = await Promise.all([UserManager.getUser(target.id, interaction.guild?.id), UserManager.getEconomy(target.id)]);
-    const xpNeeded = UserManager.xpNeeded(user.level + 1);
+    // xpNeeded(level) is the XP required to go FROM this level to the next.
+    // Passing level + 1 showed the *following* level's requirement, so the bar
+    // never filled at the point the user actually levelled up.
+    const xpNeeded = UserManager.xpNeeded(user.level);
     const pngBuffer = await generateProfile({
       username: target.username, avatarURL: target.displayAvatarURL({ extension: 'png', size: 256 }),
       level: user.level, xp: user.xp, xpNeeded, prestige: user.prestige ?? 0,

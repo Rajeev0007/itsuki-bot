@@ -67,6 +67,10 @@ export default new Command({
           ),
         } as never);
       }
+      // Every other subcommand updates the local `branding` object before
+      // re-rendering; nickname didn't, so the confirmation view always showed
+      // the *previous* nickname.
+      branding.nickname = name;
       await guildsDB.set(`${guildId}.branding.nickname`, name);
       return interaction.editReply({ components: [buildView()] });
     }
@@ -90,7 +94,7 @@ export default new Command({
     if (sub === 'reset') {
       await guildsDB.set(`${guildId}.branding`, { nickname: null, avatarUrl: null, bannerUrl: null, about: null });
       try { await interaction.guild.members.me!.setNickname(null); } catch { /* ignore */ }
-      return interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(' All branding reset.'))] });
+      return interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent('✅ All branding reset.'))] });
     }
   },
 });

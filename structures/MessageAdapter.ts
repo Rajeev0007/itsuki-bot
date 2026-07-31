@@ -20,13 +20,24 @@ import {
   type Guild,
   type TextBasedChannel,
   MessageFlags,
+  ContainerBuilder,
+  TextDisplayBuilder,
 } from 'discord.js';
 import { type SlashCommandData } from './Command';
+import { hasV2Components } from '../utils/V2Flag';
 import logger from '../utils/Logger';
 
 // ── IS_COMPONENTS_V2 flag value (1 << 15 = 32768) ───────────────────────────
 const IS_V2 = Number((MessageFlags as Record<string, unknown>).IsComponentsV2 ?? 32768);
 const EPHEMERAL = Number((MessageFlags as Record<string, unknown>).Ephemeral ?? 64);
+
+/** Wraps plain text in a minimal Components V2 container. */
+function v2Text(content: string): ContainerBuilder {
+  return new ContainerBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+}
+
+const SNOWFLAKE_RE = /^<@!?(\d{15,25})>$|^(\d{15,25})$/;
 
 // ── ApplicationCommandOptionType constants ───────────────────────────────────
 const OT = {
@@ -116,14 +127,26 @@ export class PrefixOptions {
       const isLast = i === options.length - 1;
 
       if (opt.type === OT.USER) {
-        // Prefer @mentions in order; fall back to a bare user ID
+        // Prefer @mentions in order; fall back to a bare user ID / <@id>.
         const user = mentions[mentionIdx] ?? null;
         if (user) {
           mentionIdx++;
           this._map.set(opt.name, { type: OT.USER, value: user.id, user });
         } else {
           const raw = args[argIdx];
-          if (raw) this._map.set(opt.name, { type: OT.USER, value: raw });
+          const match = raw ? SNOWFLAKE_RE.exec(raw.trim()) : null;
+          const id = match ? (match[1] ?? match[2]) : null;
+          if (id) {
+            // Resolve the ID so getUser()/get().user actually return a User
+            // instead of null (which callers dereference with `!`).
+            const resolved =
+              message.guild?.members.cache.get(id)?.user
+              ?? message.client.users.cache.get(id)
+              ?? null;
+            this._map.set(opt.name, { type: OT.USER, value: id, user: resolved ?? undefined });
+          } else if (raw) {
+            this._map.set(opt.name, { type: OT.USER, value: raw });
+          }
         }
         argIdx++;
 
@@ -262,10 +285,20 @@ export class MessageCommandAdapter {
 
   async deferReply(_opts?: unknown): Promise<void> {
     try {
-      this._loadingMsg = await this._msg.reply({ content: '' });
+      // Two things matter here:
+      //  1. Discord rejects an empty message, so the placeholder needs real
+      //     content (the previous `{ content: '' }` always threw).
+      //  2. A message created WITHOUT IS_COMPONENTS_V2 can never have the flag
+      //     added by a later edit. Since practically every command edits in a
+      //     V2 payload, the placeholder itself must be a V2 message.
+      this._loadingMsg = await this._msg.reply({
+        components: [v2Text('-# Working…')],
+        flags: IS_V2,
+      } as never);
       this.deferred = true;
     } catch (err) {
       logger.debug('[Prefix] deferReply failed:', (err as Error).message);
+      this._loadingMsg = null;
     }
   }
 
@@ -315,24 +348,47 @@ export class MessageCommandAdapter {
   }
 
   /**
-   * Merges IS_COMPONENTS_V2 into the flags of any payload and strips the
-   * Ephemeral bit (ephemeral replies don't exist for regular messages).
+   * Normalises a payload for delivery as a regular channel message.
+   *
+   * Everything the adapter sends is turned into a Components V2 payload: the
+   * loading message is created as V2 (see deferReply) and Discord will not let
+   * a V2 message be edited into a content/embeds message. Plain-text payloads
+   * are therefore wrapped in a minimal container rather than sent as `content`,
+   * which is what used to make those replies fail outright.
+   *
+   * The Ephemeral bit is always stripped — ephemeral replies don't exist for
+   * regular messages.
    */
   private _withFlag(raw: unknown): Record<string, unknown> {
     const p: Record<string, unknown> =
       typeof raw === 'object' && raw !== null
         ? { ...(raw as Record<string, unknown>) }
-        : { content: String(raw) };
+        : { content: String(raw ?? '') };
+
+    delete p.ephemeral;
+
+    if (!hasV2Components(p)) {
+      // Fold content/embeds-style payloads into a V2 container so they can be
+      // delivered through the same (V2) message the command deferred with.
+      const text = typeof p.content === 'string' && p.content.trim().length > 0
+        ? p.content
+        : null;
+      const extraRows = Array.isArray(p.components) ? p.components : [];
+      if (text !== null || extraRows.length > 0) {
+        p.components = [v2Text(text ?? '-# Done.'), ...extraRows];
+      } else {
+        p.components = [v2Text('-# Done.')];
+      }
+      delete p.embeds;
+    }
+
+    // Components V2 forbids `content`. Message#edit() is a partial patch, so
+    // the placeholder text has to be explicitly cleared — Discord treats
+    // `null` as "remove this field".
+    p.content = null;
 
     const existing = typeof p.flags === 'number' ? p.flags : 0;
     p.flags = (existing | IS_V2) & ~EPHEMERAL;
-
-    // Message#edit() is a partial patch — any field left out of the payload
-    // stays as-is. deferReply() sends '' as the content of the loading
-    // message, so if the real reply doesn't explicitly set `content`, that
-    // '' sticks around forever next to the real components. Explicitly
-    // clear it (Discord treats `null` as "remove this field").
-    if (!('content' in p)) p.content = null;
 
     return p;
   }

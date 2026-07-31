@@ -13,7 +13,7 @@ import { EMOJI as E } from '../../utils/Constants';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const CRIMES = ['robbed a convenience store','hacked a bitcoin wallet','pickpocketed a tourist','pulled off a bank heist','scammed crypto investors'];
 const CAUGHT = ['The police were waiting for you.','A witness called the cops.','You tripped the alarm.'];
-const FRAMES = [' Scoping out the target…',' Breaking in…',' Grabbing the goods…',' Making the getaway…'];
+const FRAMES = ['🔍 Scoping out the target…','🚪 Breaking in…','💰 Grabbing the goods…','🏃 Making the getaway…'];
 
 export default new Command({
   data: new SlashCommandBuilder().setName('crime').setDescription('Attempt a crime for big rewards — but you might get caught! (30 min cooldown)'),

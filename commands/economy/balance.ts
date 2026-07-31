@@ -60,6 +60,9 @@ export default new Command({
       ),
     );
     await interaction.editReply({ components: [container] });
-    await UserManager.grantAchievement(target.id, 'first_balance').catch(() => {});
+    // Credit the person who ran the command, not the person being looked at —
+    // otherwise checking someone else's balance repeatedly minted the
+    // achievement reward into *their* wallet.
+    await UserManager.grantAchievement(interaction.user.id, 'first_balance').catch(() => {});
   },
 });

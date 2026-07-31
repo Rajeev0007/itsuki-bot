@@ -18,7 +18,10 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
   const targetUserId = parts[1];
 
   if (targetUserId !== interaction.user.id) {
-    await interaction.reply({ content: ' This button is not for you.', ephemeral: true });
+    await interaction.reply({
+      content: 'This button is not for you — run `/balance` to see your own.',
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -28,7 +31,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     const { wallet } = await UserManager.getBalance(interaction.user.id);
     const amount = Math.min(wallet, config.economy.bankLimit - (await UserManager.getEconomy(interaction.user.id)).bank);
     if (amount <= 0) {
-      await interaction.followUp({ content: ' Nothing to deposit (wallet empty or bank full).', ephemeral: true });
+      await interaction.followUp({ content: 'Nothing to deposit (wallet empty or bank full).', flags: MessageFlags.Ephemeral });
       return;
     }
     await EconomyManager.deposit(interaction.user.id, amount);
@@ -55,7 +58,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     const eco = await UserManager.getEconomy(interaction.user.id);
     const amount = Math.min(eco.bank, config.economy.maxWallet - eco.wallet);
     if (amount <= 0) {
-      await interaction.followUp({ content: ' Nothing to withdraw (bank empty or wallet full).', ephemeral: true });
+      await interaction.followUp({ content: 'Nothing to withdraw (bank empty or wallet full).', flags: MessageFlags.Ephemeral });
       return;
     }
     await EconomyManager.withdraw(interaction.user.id, amount);
@@ -81,7 +84,9 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
   // Default: balance_refresh
   const eco = await UserManager.getEconomy(interaction.user.id);
   const user = await UserManager.getUser(interaction.user.id, interaction.guild?.id);
-  const xpNeeded = UserManager.xpNeeded(user.level + 1);
+  // XP needed to advance FROM the current level (was level + 1, which is the
+  // next level's requirement and never matched the actual level-up point).
+  const xpNeeded = UserManager.xpNeeded(user.level);
   const xpBar = ProgressBar.create(user.xp, xpNeeded, 12);
 
   const container = new ContainerBuilder()

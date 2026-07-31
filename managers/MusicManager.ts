@@ -138,10 +138,25 @@ class MusicManager {
     return this.sessions.get(guildId) ?? null;
   }
 
+  /** Creates (or reuses) the guild's player, always leaving a session in place. */
   createPlayer(guild: { id: string }, voiceChannel: VoiceBasedChannel, textChannel: TextBasedChannel): LavendePlayer {
     if (!this.manager) throw new Error('MusicManager is not initialised yet.');
     const existing = (this.manager as { players: Map<string, LavendePlayer> }).players.get(guild.id);
-    if (existing) return existing;
+    if (existing) {
+      // destroyPlayer() removes the session before destroying the player, so a
+      // failed destroy leaves a player with no session. Callers then did
+      // `getSession(id)!` and crashed on null. Re-create the session instead.
+      if (!this.sessions.has(guild.id)) {
+        const settings = this.getGuildSettings(guild.id);
+        this.sessions.set(guild.id, {
+          voiceChannel, textChannel, loop: 'off', current: null, lastTrack: null,
+          queueList: [], npMessage: null, leaveTimer: null,
+          alwaysOn: settings.alwaysOn, autoplay: settings.autoplay,
+        });
+        this._attachPlayerEvents(guild.id, existing);
+      }
+      return existing;
+    }
 
     const player = (this.manager as {
       createPlayer: (opts: { guildId: string; voiceChannelId: string; textChannelId: string; volume: number }) => LavendePlayer;
@@ -176,12 +191,12 @@ class MusicManager {
   buildNowPlayingPayload(guildId: string): { components: unknown[]; flags: number } {
     const session = this.getSession(guildId);
     const player = this.getPlayer(guildId);
-    if (!session?.current) return this._simpleComponents(' Nothing is playing right now.');
+    if (!session?.current) return this._simpleComponents('🔇 Nothing is playing right now.');
 
     const track = session.current;
     const info = track.info ?? {};
     const isLive = !!info.isStream;
-    const dur = isLive ? ' LIVE' : formatDuration(info.length ?? 0);
+    const dur = isLive ? '🔴 LIVE' : formatDuration(info.length ?? 0);
     const loopIcon = session.loop === 'track' ? ' (Track Loop)' : session.loop === 'queue' ? ' (Queue Loop)' : '';
     const vol = player?.volume ?? musicConfig.defaultVolume;
     const requester = track.requester;
@@ -325,7 +340,7 @@ class MusicManager {
             session.queueList.push(pick);
             await player.play();
             (session.textChannel as any).send(
-              this._simpleComponents(` Autoplay: queuing **${pick.info?.title ?? 'Unknown'}**…`) as any
+              this._simpleComponents(`🎶 Autoplay: queuing **${pick.info?.title ?? 'Unknown'}**…`) as any
             ).catch(() => {});
             return;
           }
@@ -338,7 +353,7 @@ class MusicManager {
       if (gs.alwaysOn) {
         this._revertPresence();
         (session.textChannel as any).send(
-          this._simpleComponents(' Queue finished. 24/7 mode is **on** — staying in the voice channel.') as any
+          this._simpleComponents('♻️ Queue finished. 24/7 mode is **on** — staying in the voice channel.') as any
         ).catch(() => {});
         return;
       }
@@ -349,7 +364,7 @@ class MusicManager {
         const tc = session.textChannel;
         await this.destroyPlayer(guildId);
         (tc as any).send(
-          this._simpleComponents(' Queue finished — left the voice channel after 30 seconds of silence.') as any
+          this._simpleComponents('👋 Queue finished — left the voice channel after 30 seconds of silence.') as any
         ).catch(() => {});
       }, musicConfig.autoLeaveMs);
     });

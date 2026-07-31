@@ -220,10 +220,10 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
 
   /* Stats row */
   const STATS = [
-    { label: ' Net Worth', value: fmtNum(opts.wallet + opts.bank) },
-    { label: ' Wallet', value: fmtNum(opts.wallet) },
-    { label: ' Bank', value: fmtNum(opts.bank) },
-    { label: ' Wins', value: fmtNum(opts.gamesWon) },
+    { label: 'Net Worth', value: fmtNum(opts.wallet + opts.bank) },
+    { label: 'Wallet', value: fmtNum(opts.wallet) },
+    { label: 'Bank', value: fmtNum(opts.bank) },
+    { label: 'Wins', value: fmtNum(opts.gamesWon) },
   ];
   const statW = (W - RX - 24) / STATS.length;
   STATS.forEach((s, i) => {

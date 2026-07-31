@@ -53,7 +53,10 @@ export default new Event({
         try {
           const i = interaction as unknown as Record<string, unknown>;
           if (!i.replied && !i.deferred) {
-            await (i.reply as (o: unknown) => Promise<void>)({ content: ' An error occurred.', ephemeral: true });
+            await (i.reply as (o: unknown) => Promise<void>)({
+              content: 'An error occurred.',
+              flags: MessageFlags.Ephemeral,
+            });
           }
         } catch { /* ignore */ }
       }
@@ -67,7 +70,10 @@ export default new Event({
 
     if (!command) {
       logger.warn(`[interactionCreate] Unknown command: /${cmdName}`);
-      await cmdInteraction.reply({ content: ' Unknown command.', ephemeral: true }).catch(() => {});
+      await cmdInteraction.reply({
+        content: 'Unknown command. It may have been removed — try again in a moment.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
       return;
     }
 
@@ -156,6 +162,10 @@ export default new Event({
     } catch (err) {
       logger.error(`[interactionCreate] /${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');
+
+      // The command never completed, so don't make the user wait out a
+      // cooldown for it — especially a long one like /work or /daily.
+      if (cdKey) cooldowns.clear(userId, command.name);
 
       const errContent = `Something went wrong.\n\`\`\`${(err as Error).message?.slice(0, 200)}\`\`\``;
       try {

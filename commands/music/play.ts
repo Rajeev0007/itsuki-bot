@@ -37,7 +37,9 @@ export default new Command({
       return interaction.editReply(musicError(`You must be in <#${existingSession.voiceChannel.id}> to add songs.`) as never);
     }
 
-    const query = interaction.options.get('query')?.value as string;
+    const query = interaction.options.getString('query');
+    if (!query || !query.trim())
+      return interaction.editReply(musicError('Give me something to play — a song name or a URL.') as never);
     let player;
     try {
       player = music.createPlayer(guild as never, voiceChannel as never, (interaction as { channel: unknown }).channel as never);

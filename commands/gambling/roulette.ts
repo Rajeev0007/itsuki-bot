@@ -44,12 +44,18 @@ export default new Command({
   category: 'gambling',
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
-    const betType = interaction.options.get('bet_type')!.value as string;
-    const numChoice = interaction.options.get('number')?.value as number | null ?? null;
-    if (betType === 'number' && numChoice === null)
+    const betType = (interaction.options.getString('bet_type') ?? '').toLowerCase();
+    const VALID_TYPES = ['red', 'black', 'even', 'odd', 'low', 'high', 'number'];
+    if (!VALID_TYPES.includes(betType))
+      return interaction.editReply({ ...CB.errorResponse('Invalid Bet Type', `Choose one of: ${VALID_TYPES.join(', ')}.`) } as never);
+    const numChoice = interaction.options.getInteger('number');
+    if (betType === 'number' && (numChoice === null || numChoice < 0 || numChoice > 36))
       return interaction.editReply({ ...CB.errorResponse('Missing Number', 'Provide a number (0-36) when betting exact.') } as never);
     const { wallet } = await UserManager.getBalance(interaction.user.id);
-    const bet = fmt.parseAmount(interaction.options.get('bet')!.value as string, wallet);
+    const rawBet = interaction.options.getString('bet');
+    if (!rawBet)
+      return interaction.editReply({ ...CB.errorResponse('Missing Bet', 'Tell me how much to bet, e.g. `500`, `10k`, `half` or `all`.') } as never);
+    const bet = fmt.parseAmount(rawBet, wallet);
     if (!bet || bet < config.gambling.minBet || bet > config.gambling.maxBet)
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
@@ -70,6 +76,9 @@ export default new Command({
     await UserManager.addWallet(interaction.user.id, net);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
+    await UserManager.recordTransaction(
+      interaction.user.id, won ? 'gambling_win' : 'gambling_loss', net, 'Roulette',
+    );
 
     const eco = await UserManager.getEconomy(interaction.user.id);
     const c = new ContainerBuilder()

@@ -52,19 +52,47 @@ function loadLocal(commandsDir: string): Map<string, RawCommand> {
 }
 
 // ── Normalize a command for stable comparison ────────────────────────────────
-// Strips Discord-added fields (id, application_id, version, guild_id, etc.)
-// and sorts object keys so JSON.stringify gives a deterministic string.
+// Produces a deterministic string for a command definition so a local build can
+// be compared against what Discord echoes back.
+//
+// This has to be aggressive about noise, because Discord's response is NOT a
+// verbatim copy of what was sent. It adds bookkeeping fields (id,
+// application_id, version), newer permission fields the builders don't emit
+// (contexts, integration_types), and null-valued localization keys — while
+// omitting defaults such as `required: false`. Comparing any of that verbatim
+// made every command look "changed" on every boot, so the bot re-registered all
+// of its global commands each time it started, burning through the daily
+// command-creation rate limit for no reason.
 function normalize(cmd: unknown): string {
   const STRIP = new Set([
+    // Discord bookkeeping
     'id', 'application_id', 'version', 'guild_id',
+    // Newer/echo-only permission + context fields the builders don't send
+    'contexts', 'integration_types', 'default_permission', 'handler',
+    // Localization maps — echoed back as null when unset
+    'name_localizations', 'description_localizations',
   ]);
+
+  /** Fields Discord omits when they hold their default value. */
+  const DEFAULTS: Record<string, unknown> = {
+    required: false,
+    autocomplete: false,
+    nsfw: false,
+  };
 
   function clean(v: unknown): unknown {
     if (Array.isArray(v)) return v.map(clean);
     if (v !== null && typeof v === 'object') {
       return Object.fromEntries(
         Object.entries(v as Record<string, unknown>)
-          .filter(([k]) => !STRIP.has(k))
+          .filter(([k, val]) => {
+            if (STRIP.has(k)) return false;
+            // Drop null/undefined and default-valued keys so "absent" and
+            // "explicitly default" compare equal.
+            if (val === null || val === undefined) return false;
+            if (k in DEFAULTS && val === DEFAULTS[k]) return false;
+            return true;
+          })
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([k, val]) => [k, clean(val)]),
       );

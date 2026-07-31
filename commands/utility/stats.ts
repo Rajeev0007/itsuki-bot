@@ -7,6 +7,7 @@ import { Command } from '../../structures/Command';
 import config from '../../config/config';
 import fmt from '../../utils/Formatter';
 import { getStore } from '../../database/JsonStore';
+import { EMOJI as E } from '../../utils/Constants';
 
 const usersDB = getStore('users');
 
@@ -27,9 +28,9 @@ export default new Command({
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([`# ${config.bot.name} Statistics`, `Version ${config.bot.version} • Discord.js v14`].join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-        '** Bot Info**', `> Guilds: **${guilds}**`, `> Cached Users: **${fmt.number(users)}**`, `> Uptime: **${upStr}**`, '',
-        '** Database**', `> Registered Users: **${fmt.number(total)}**`, '',
-        '** System**', `> RAM: **${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB**`, `> WS Ping: **${client.ws.ping}ms**`, `> Node.js: **${process.version}**`,
+        `**${E.INFO} Bot Info**`, `> Guilds: **${guilds}**`, `> Cached Users: **${fmt.number(users)}**`, `> Uptime: **${upStr}**`, '',
+        `**${E.CHART} Database**`, `> Registered Users: **${fmt.number(total)}**`, '',
+        `**${E.LIGHTNING} System**`, `> RAM: **${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB**`, `> WS Ping: **${client.ws.ping}ms**`, `> Node.js: **${process.version}**`,
       ].join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${config.bot.name} v${config.bot.version}`));
