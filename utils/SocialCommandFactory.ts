@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { Command }  from '../structures/Command';
 import GifService   from '../services/GifService';
+import UserManager  from '../managers/UserManager';
 import { getStore } from '../database/JsonStore';
 import * as CB      from '../builders/ComponentBuilder';
 
@@ -36,10 +37,16 @@ export function createSocialCommand(
 
     async execute(interaction) {
       await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
-      const target  = interaction.options.get('user')?.user;
-      const message = interaction.options.get('message')?.value as string | null;
+      const target  = interaction.options.getUser('user');
+      const message = interaction.options.getString('message');
 
-      if (!target) return;
+      // Silently returning left the command hanging on its "Working…"
+      // placeholder forever when no user could be resolved.
+      if (!target) {
+        return interaction.editReply({
+          ...CB.errorResponse('Missing User', `Mention someone to ${action}, e.g. \`${action} @user\`.`),
+        });
+      }
 
       if (target.id === interaction.client.user.id) {
         return interaction.editReply({
@@ -57,6 +64,12 @@ export function createSocialCommand(
       await socialDB.ensure(targetKey, 0);
       const sentCount     = await socialDB.add(senderKey, 1);
       const receivedCount = await socialDB.add(targetKey, 1);
+
+      // Nothing used to call this, so actions.json stayed empty, the
+      // `socialActions` stat never moved, and the "Social Butterfly"
+      // achievement (100 social actions) was impossible to earn.
+      await UserManager.recordSocialAction(interaction.user.id, target.id, action);
+      await UserManager.checkAchievements(interaction.user.id);
 
       const selfAction = target.id === interaction.user.id;
       const mainText   = selfAction

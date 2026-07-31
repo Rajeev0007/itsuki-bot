@@ -34,7 +34,7 @@ async function replyError(message: Message, title: string, desc: string): Promis
       flags: V2_FLAGS,
     } as never);
   } catch {
-    await message.reply(` **${title}:** ${desc}`).catch(() => {});
+    await message.reply(`❌ **${title}:** ${desc}`).catch(() => {});
   }
 }
 
@@ -61,7 +61,7 @@ export default new Event({
         .then(({ leveledUp, newLevel }) => {
           if (leveledUp) {
             (message.channel as { send: (m: string) => Promise<unknown> })
-              .send(` ${message.author} leveled up to **Level ${newLevel}**!`)
+              .send(`🎉 ${message.author} leveled up to **Level ${newLevel}**!`)
               .catch(() => {});
           }
         })
@@ -69,20 +69,29 @@ export default new Event({
     }
 
     // ── Mention shortcut ──────────────────────────────────────────────────────
-    if (message.mentions.has(client.user!)) {
+    // Only a message that is *just* a ping of the bot gets the greeting, and it
+    // returns immediately afterwards.
+    //
+    // `message.mentions.has(client.user)` was far too broad: it also matched
+    // replies to the bot and @everyone/role mentions that happen to include it.
+    // Worse, it didn't return — so ",hug @Bot" sent the greeting AND then ran
+    // the command.
+    const content = message.content.trim();
+    if (new RegExp(`^<@!?${client.user!.id}>$`).test(content)) {
       await message.reply(
-        ` Hi! Use \`${prefix}help\` or \`/help\` to see all commands.`
+        `Hi! Use \`${prefix}help\` or \`/help\` to see all commands.`
       ).catch(() => {});
+      return;
     }
 
     // ── Determine whether this message should be treated as a command ─────────
-    const hasPrefix = message.content.startsWith(prefix);
+    const hasPrefix = content.startsWith(prefix);
     const hasNoPrefix = NoPrefixManager.has(userId); // sync O(1) — no await
 
     if (!hasPrefix && !hasNoPrefix) return;
 
     // Strip prefix if present; NoPrefix users send raw command names
-    const raw = (hasPrefix ? message.content.slice(prefix.length) : message.content).trim();
+    const raw = (hasPrefix ? content.slice(prefix.length) : content).trim();
     if (!raw) return;
 
     const parts = raw.split(/\s+/);
@@ -144,7 +153,7 @@ export default new Event({
           } as never);
         } catch {
           await message.reply(
-            ` You can use \`${prefix}${command.name}\` again in **${Math.ceil(remaining / 1000)}s**.`
+            `⏰ You can use \`${prefix}${command.name}\` again in **${Math.ceil(remaining / 1000)}s**.`
           ).catch(() => {});
         }
         return;
@@ -161,6 +170,10 @@ export default new Event({
     } catch (err) {
       logger.error(`[Prefix] ${command.name} threw:`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');
+
+      // The command never completed — release the cooldown it reserved.
+      if (hasCd) cooldowns.clear(userId, command.name);
+
       const errMsg = (err as Error).message?.slice(0, 200) ?? 'Unknown error';
       try {
         await adapter.sendError({
@@ -168,7 +181,7 @@ export default new Event({
           flags: V2_FLAGS,
         });
       } catch {
-        await message.reply(` Something went wrong: ${errMsg}`).catch(() => {});
+        await message.reply(`❌ Something went wrong: ${errMsg}`).catch(() => {});
       }
     }
   },

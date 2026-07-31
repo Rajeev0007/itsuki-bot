@@ -19,11 +19,25 @@ export const customId = 'nav_:*';
 export async function execute(interaction: ButtonInteraction, _client: Client): Promise<void> {
   const rawId = interaction.customId;
 
+  // These buttons EDIT the original message. When a customId carries an owner
+  // id (`nav_balance:<userId>`) only that user may use it — otherwise anyone
+  // could click someone else's /daily message and overwrite it with their own
+  // balance.
+  const ownerId = rawId.includes(':') ? rawId.split(':')[1] : null;
+  if (ownerId && ownerId !== interaction.user.id) {
+    await interaction.reply({
+      content: 'This button belongs to someone else — run the command yourself to get your own.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (rawId === 'nav_balance' || rawId.startsWith('nav_balance:')) {
     await interaction.deferUpdate();
     const eco      = await UserManager.getEconomy(interaction.user.id);
     const user     = await UserManager.getUser(interaction.user.id, interaction.guild?.id);
-    const xpNeeded = UserManager.xpNeeded(user.level + 1);
+    // XP needed to advance FROM the current level (see UserManager.xpNeeded).
+    const xpNeeded = UserManager.xpNeeded(user.level);
     const xpBar    = ProgressBar.create(user.xp, xpNeeded, 12);
 
     const container = new ContainerBuilder()

@@ -17,7 +17,7 @@ export default new Command({
     const channel = interaction.options.get('channel')?.channel as { id: string; permissionsFor?: (m: unknown) => { has: (f: bigint) => boolean } } | null;
     if (!channel) {
       music.setLockedChannel(interaction.guild!.id, null);
-      return interaction.editReply(musicSuccess(' Voice channel lock **cleared**.') as never);
+      return interaction.editReply(musicSuccess('🔓 Voice channel lock **cleared**.') as never);
     }
     const perms = channel.permissionsFor?.(interaction.guild!.members.me);
     if (!perms?.has(PermissionFlagsBits.Connect) || !perms?.has(PermissionFlagsBits.Speak))
@@ -29,6 +29,6 @@ export default new Command({
       try { await (player as { move: (id: string) => Promise<void> }).move(channel.id); session.voiceChannel = channel as never; }
       catch { /* non-fatal */ }
     }
-    return interaction.editReply(musicSuccess(` Voice channel locked to <#${channel.id}>. The bot will always join this channel.`) as never);
+    return interaction.editReply(musicSuccess(`🔒 Voice channel locked to <#${channel.id}>. The bot will always join this channel.`) as never);
   },
 });

@@ -1,5 +1,5 @@
 import {
-  ContainerBuilder, TextDisplayBuilder,
+  MessageFlags, ContainerBuilder, TextDisplayBuilder,
   SeparatorBuilder, SeparatorSpacingSize,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   type ButtonInteraction,
@@ -13,7 +13,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
   const [, ownerId, category] = interaction.customId.split(':');
 
   if (ownerId !== interaction.user.id) {
-    await interaction.reply({ content: 'This button is not for you.', ephemeral: true });
+    await interaction.reply({ content: 'This button is not for you.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -21,7 +21,7 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
 
   const imageUrl = await AnimeService.getWaifuImage(category);
   if (!imageUrl) {
-    await interaction.followUp({ content: 'Could not fetch a new image. Try again.', ephemeral: true });
+    await interaction.followUp({ content: 'Could not fetch a new image. Try again.', flags: MessageFlags.Ephemeral });
     return;
   }
 

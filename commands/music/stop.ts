@@ -11,6 +11,6 @@ export default new Command({
     const { error } = musicCheck(interaction, music, { needsQueue: true });
     if (error) return interaction.editReply(musicError(error) as never);
     await music.destroyPlayer(interaction.guild!.id);
-    return interaction.editReply(musicSuccess(' Stopped playback and cleared the queue.') as never);
+    return interaction.editReply(musicSuccess('⏹️ Stopped playback and cleared the queue.') as never);
   },
 });

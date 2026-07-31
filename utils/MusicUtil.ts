@@ -62,17 +62,17 @@ export function musicCheck(
   const guild = interaction.guild;
 
   if (!member?.voice?.channel) {
-    return { error: ' You need to be in a voice channel first.', session: null, player: null };
+    return { error: '❌ You need to be in a voice channel first.', session: null, player: null };
   }
 
   const session = manager.getSession(guild!.id);
   const player = manager.getPlayer(guild!.id);
 
   if (opts.needsQueue && !session) {
-    return { error: ' Nothing is playing right now.', session: null, player: null };
+    return { error: '🔇 Nothing is playing right now.', session: null, player: null };
   }
   if (opts.needsPlaying && (!session || !session.current)) {
-    return { error: ' Nothing is playing right now.', session: null, player: null };
+    return { error: '🔇 Nothing is playing right now.', session: null, player: null };
   }
   if (session && member.voice.channel.id !== session.voiceChannel.id) {
     return {

@@ -33,15 +33,17 @@ export default new Command({
       for (const cat of categories) {
         const catItems = items.filter((i) => i.category === cat);
         const lines = catItems.map((item) => `> **${item.name}** — ${fmt.coins(item.price)}\n> ${item.description} \`ID: ${item.id}\``);
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent([`** ${cat.toUpperCase()}**`, ...lines].join('\n\n')));
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent([`**${cat.toUpperCase()}**`, ...lines].join('\n\n')));
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
       }
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Use `/shop buy <item_id>` to purchase'));
       return interaction.editReply({ components: [container] });
     }
     if (sub === 'buy') {
-      const itemId = (interaction.options.get('item')!.value as string).toLowerCase();
-      const qty = (interaction.options.get('quantity')?.value as number) ?? 1;
+      const rawItem = interaction.options.getString('item');
+      if (!rawItem) return interaction.editReply({ ...CB.errorResponse('Missing Item', 'Provide an item ID, e.g. `/shop buy pickaxe`.') } as never);
+      const itemId = rawItem.trim().toLowerCase();
+      const qty = Math.max(1, Math.min(99, interaction.options.getInteger('quantity') ?? 1));
       const item = config.shop.items.find((i) => i.id === itemId);
       if (!item) return interaction.editReply({ ...CB.errorResponse('Not Found', `No item with ID \`${itemId}\`.`) } as never);
       const totalCost = item.price * qty;

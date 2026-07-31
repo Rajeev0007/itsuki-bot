@@ -13,7 +13,7 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const rtt = Date.now() - start;
     const ws = interaction.client.ws.ping;
-    const bar = (ms: number) => ms < 100 ? ' Excellent' : ms < 200 ? ' Good' : ms < 400 ? ' Average' : ' Poor';
+    const bar = (ms: number) => ms < 100 ? 'Excellent' : ms < 200 ? 'Good' : ms < 400 ? 'Average' : 'Poor';
     const c = new ContainerBuilder()
       .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Pong!'))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))

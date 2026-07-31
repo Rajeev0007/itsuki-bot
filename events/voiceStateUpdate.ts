@@ -39,7 +39,7 @@ export default new Event({
           const tc = session.textChannel;
           await music.destroyPlayer(guildId).catch(() => {});
           (tc as any).send(
-            music._simpleComponents(' Everyone left — disconnected from voice.')
+            music._simpleComponents('👋 Everyone left — disconnected from voice.')
           ).catch(() => {});
         }, musicConfig.autoLeaveMs);
       }

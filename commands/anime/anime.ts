@@ -14,7 +14,8 @@ export default new Command({
   category: 'anime', cooldown: 5000,
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
-    const query = interaction.options.get('query')!.value as string;
+    const query = interaction.options.getString('query');
+    if (!query) return interaction.editReply({ ...CB.errorResponse('Missing Query', 'Give me an anime title to search for.') } as never);
     const results = await AnimeService.searchAnime(query);
     if (!results?.length) return interaction.editReply({ ...CB.errorResponse('Not Found', `No anime found for **${query}**.`) } as never);
     const anime = results[0];
@@ -32,11 +33,15 @@ export default new Command({
       ].join('\n')))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# MAL ID: ${anime.mal_id} • Rank: #${anime.rank ?? '?'}`));
-    c.addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setLabel('View on MAL').setStyle(ButtonStyle.Link).setURL(anime.url),
-      ),
-    );
+    // setURL() throws on an undefined/invalid URL, which Jikan does occasionally
+    // omit — that would take down the whole command instead of one button.
+    if (typeof anime.url === 'string' && /^https?:\/\//i.test(anime.url)) {
+      c.addActionRowComponents(
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder().setLabel('View on MAL').setStyle(ButtonStyle.Link).setURL(anime.url),
+        ),
+      );
+    }
     await interaction.editReply({ components: [c] });
   },
 });

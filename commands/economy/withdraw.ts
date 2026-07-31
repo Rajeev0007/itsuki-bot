@@ -18,8 +18,8 @@ export default new Command({
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { bank } = await UserManager.getBalance(interaction.user.id);
-    const parsed   = fmt.parseAmount(interaction.options.get('amount')!.value as string, bank);
-    if (!parsed || parsed <= 0) return interaction.editReply({ ...CB.errorResponse('Invalid Amount', 'Please provide a valid positive amount.') } as never);
+    const parsed   = fmt.parseAmount(interaction.options.getString('amount'), bank);
+    if (!parsed || parsed <= 0) return interaction.editReply({ ...CB.errorResponse('Invalid Amount', 'Please provide a valid positive amount — a number, `half`, or `all`.') } as never);
     const result = await EconomyManager.withdraw(interaction.user.id, parsed);
     if (!result.success) {
       const msgs: Record<string, string> = { insufficient_bank: "You don't have enough in your bank.", wallet_full: 'Your wallet is full.', invalid_amount: 'Invalid amount.' };

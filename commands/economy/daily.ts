@@ -26,7 +26,7 @@ export default new Command({
       return interaction.editReply({ components: [container] });
     }
     const eco = await UserManager.getEconomy(interaction.user.id);
-    const streak = eco.dailyStreak ?? 1;
+    const streak = result.streak ?? eco.dailyStreak ?? 1;
     const container = new ContainerBuilder()
       .addSectionComponents(
         new SectionBuilder().addTextDisplayComponents(
@@ -37,6 +37,9 @@ export default new Command({
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `${E.COINS} **Earned:** ${fmt.coins(result.amount)}`,
         `**Streak:** ${streak} day${streak !== 1 ? 's' : ''}`,
+        // Tell the user when a missed day reset their streak, rather than
+        // letting the number quietly drop back to 1.
+        result.streakReset ? '> You missed a day, so your streak restarted.' : '',
         streak > 1 ? `> +${Math.min(streak * 5, 50)}% streak bonus applied!` : '',
         '', `${E.WALLET} **New Wallet:** ${fmt.coins(eco.wallet)}`,
       ].filter(Boolean).join('\n')))
@@ -44,8 +47,10 @@ export default new Command({
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Next daily available ${fmt.relativeTime(Date.now() + config.cooldowns.daily)}`));
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('nav_balance').setLabel('View Balance').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('nav_shop').setLabel('Visit Shop').setStyle(ButtonStyle.Primary),
+        // Owner id in the customId so other members can't click these and
+        // overwrite this message with their own data.
+        new ButtonBuilder().setCustomId(`nav_balance:${interaction.user.id}`).setLabel('View Balance').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`nav_shop:${interaction.user.id}`).setLabel('Visit Shop').setStyle(ButtonStyle.Primary),
       ),
     );
     await interaction.editReply({ components: [container] });

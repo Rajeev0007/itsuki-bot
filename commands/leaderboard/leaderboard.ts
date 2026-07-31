@@ -10,10 +10,10 @@ import fmt from '../../utils/Formatter';
 import { MEDALS } from '../../utils/Constants';
 
 const CATS = [
-  { id: 'netWorth', label: ' Net Worth', field: (v: number) => fmt.coins(v) },
-  { id: 'level', label: ' Level', field: (v: number) => `Level ${v}` },
-  { id: 'gamesWon', label: ' Games Won', field: (v: number) => `${fmt.number(v)} wins` },
-  { id: 'totalEarned', label: ' Total Earned', field: (v: number) => fmt.coins(v) },
+  { id: 'netWorth', label: 'Net Worth', field: (v: number) => fmt.coins(v) },
+  { id: 'level', label: 'Level', field: (v: number) => `Level ${v}` },
+  { id: 'gamesWon', label: 'Games Won', field: (v: number) => `${fmt.number(v)} wins` },
+  { id: 'totalEarned', label: 'Total Earned', field: (v: number) => fmt.coins(v) },
 ];
 
 export default new Command({

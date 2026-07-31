@@ -20,7 +20,8 @@ export default new Command({
   category: 'economy',
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
-    const target = interaction.options.get('target')!.user!;
+    const target = interaction.options.getUser('target');
+    if (!target) return interaction.editReply({ ...CB.errorResponse('Missing Target', 'Mention the user you want to rob.') } as never);
     if (target.id === interaction.user.id) return interaction.editReply({ ...CB.errorResponse('Invalid Target', 'You cannot rob yourself.') } as never);
     if (target.bot) return interaction.editReply({ ...CB.errorResponse('Invalid Target', 'Bots carry no coins!') } as never);
     const result = await EconomyManager.rob(interaction.user.id, target.id);
@@ -33,6 +34,11 @@ export default new Command({
     }
     if (!result.success && 'reason' in result && result.reason === 'too_poor')
       return interaction.editReply({ ...CB.errorResponse('Broke Target', `${target.username} doesn't have enough coins (min ${fmt.coins(config.economy.robMinWallet)}).`) } as never);
+    if (!result.success && 'reason' in result && result.reason === 'no_collateral')
+      return interaction.editReply({ ...CB.errorResponse(
+        'Nothing to Lose',
+        `You need at least ${fmt.coins(config.economy.robFine.min)} in your wallet to cover the fine if you get caught.`,
+      ) } as never);
     const frames = ['Locating **' + target.username + '**…', 'Sneaking up…', 'Making your move…'];
     for (const f of frames) {
       await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Robbery in Progress\n> ${f}`))] });

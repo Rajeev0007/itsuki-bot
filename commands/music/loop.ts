@@ -15,10 +15,12 @@ export default new Command({
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as any });
     const { error, session, player } = musicCheck(interaction, music, { needsQueue: true });
     if (error) return interaction.editReply(musicError(error) as never);
-    const mode = interaction.options.get('mode')!.value as 'off' | 'track' | 'queue';
+    const mode = interaction.options.getString('mode') as 'off' | 'track' | 'queue' | null;
+    if (mode !== 'off' && mode !== 'track' && mode !== 'queue')
+      return interaction.editReply(musicError('Choose a loop mode: `off`, `track`, or `queue`.') as never);
     session!.loop = mode;
     await (player as { setRepeatMode: (m: string) => Promise<void> }).setRepeatMode(mode);
-    const labels = { off: ' Loop **off**.', track: ' Looping current **track**.', queue: ' Looping the entire **queue**.' };
+    const labels = { off: '➡️ Loop **off**.', track: '🔂 Looping current **track**.', queue: '🔁 Looping the entire **queue**.' };
     return interaction.editReply(musicSuccess(labels[mode]) as never);
   },
 });

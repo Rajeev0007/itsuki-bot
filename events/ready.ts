@@ -35,7 +35,13 @@ export default new Event({
     setPresence();
     setInterval(setPresence, config.presence.activityInterval);
 
-    const STORES = ['users','economy','inventory','anime','pets','marriages','gambling'];
+    // Only stores the bot actually uses. 'anime' and 'marriages' don't exist —
+    // naming them here made getStore() create two empty JSON files on the first
+    // backup pass and then dutifully back them up forever.
+    const STORES = [
+      'users', 'economy', 'inventory', 'pets', 'gambling',
+      'guilds', 'social', 'actions', 'profiles',
+    ];
     setInterval(async () => {
       for (const name of STORES) {
         try { await getStore(name).backup(); } catch { /* ignore */ }

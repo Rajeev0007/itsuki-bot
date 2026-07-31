@@ -11,7 +11,7 @@ import config from '../../config/config';
 import { EMOJI as E } from '../../utils/Constants';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const FRAMES = [' Clocking in…',' Putting in the work…',' Almost done with your shift…',' Collecting your pay…'];
+const FRAMES = ['🕑 Clocking in…','💼 Putting in the work…','⏳ Almost done with your shift…','💵 Collecting your pay…'];
 
 export default new Command({
   data: new SlashCommandBuilder().setName('work').setDescription('Work at a random job to earn coins. (1 hour cooldown)'),

@@ -7,9 +7,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { type Client, type Interaction } from 'discord.js';
+import { MessageFlags, type Client, type Interaction } from 'discord.js';
 import logger from '../utils/Logger';
-import { patchReplies } from '../utils/V2Flag';
 
 interface InteractionModule {
   customId: string;
@@ -100,7 +99,10 @@ export default class InteractionHandler {
     } catch (err) {
       logger.error(`[InteractionHandler] Error handling "${rawId}":`, (err as Error).message);
       logger.debug((err as Error).stack ?? '');
-      const msg = { content: ' An error occurred processing this interaction.', ephemeral: true };
+      const msg = {
+        content: 'An error occurred processing this interaction.',
+        flags: MessageFlags.Ephemeral,
+      };
       const i = interaction as unknown as Record<string, unknown>;
       if (i.replied || i.deferred) {
         await (i.followUp as (o: unknown) => Promise<void>)(msg).catch(() => {});

@@ -26,13 +26,42 @@ export interface TriviaQuestion {
   answers:       string[]; // correct + incorrect, shuffled
 }
 
-/** opentdb HTML-encodes its text (quotes, apostrophes, ampersands, etc). */
+/** Named entities opentdb emits that have no numeric form in its output. */
+const NAMED_ENTITIES: Record<string, string> = {
+  quot: '"', apos: "'", amp: '&', lt: '<', gt: '>', nbsp: ' ',
+  hellip: '…', ldquo: '“', rdquo: '”', lsquo: '‘', rsquo: '’',
+  ndash: '–', mdash: '—', deg: '°', shy: '', laquo: '«', raquo: '»',
+  eacute: 'é', egrave: 'è', ecirc: 'ê', uuml: 'ü', ouml: 'ö', auml: 'ä',
+  ntilde: 'ñ', ccedil: 'ç', aacute: 'á', iacute: 'í', oacute: 'ó',
+  uacute: 'ú', agrave: 'à', acirc: 'â', ocirc: 'ô', szlig: 'ß',
+  aring: 'å', oslash: 'ø', aelig: 'æ', middot: '·', prime: '′',
+  trade: '™', copy: '©', reg: '®', euro: '€', pound: '£', yen: '¥',
+  sup2: '²', sup3: '³', frac12: '½', times: '×', divide: '÷',
+};
+
+/**
+ * opentdb HTML-encodes its text. The previous version hand-listed a dozen
+ * entities, so anything else (`&#233;`, `&Uuml;`, `&sup2;`, `&ccedil;`…) leaked
+ * through as raw markup in the question and answer buttons.
+ *
+ * Numeric entities are decoded first and named ones resolved in a single pass,
+ * so a double-encoded sequence like `&amp;lt;` correctly yields `&lt;` rather
+ * than being decoded twice.
+ */
 function decodeHtml(str: string): string {
-  return str
-    .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&')
-    .replace(/&eacute;/g, 'é').replace(/&uuml;/g, 'ü').replace(/&rsquo;/g, '’')
-    .replace(/&ldquo;/g, '“').replace(/&rdquo;/g, '”').replace(/&hellip;/g, '…')
-    .replace(/&ntilde;/g, 'ñ').replace(/&auml;/g, 'ä').replace(/&ouml;/g, 'ö');
+  return String(str ?? '')
+    .replace(/&#(\d+);/g, (_m, dec: string) => {
+      const code = Number(dec);
+      return Number.isFinite(code) && code > 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : _m;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) && code > 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : _m;
+    })
+    .replace(/&([a-z][a-z0-9]*);/gi, (m, name: string) => {
+      const key = name.toLowerCase();
+      return key in NAMED_ENTITIES ? NAMED_ENTITIES[key] : m;
+    });
 }
 
 function shuffle<T>(arr: T[]): T[] {
