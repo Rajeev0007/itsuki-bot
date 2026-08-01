@@ -9,6 +9,7 @@
 
 import {
   createCanvas, roundRect, fitText, fmtNum, tryLoadImage, drawImageCover,
+  drawText, preloadEmoji, collectStrings,
   type Ctx,
 } from './canvas/CanvasKit';
 import { RARITIES } from './CardService';
@@ -31,6 +32,10 @@ function drawRarityBorder(ctx: Ctx, x: number, y: number, w: number, h: number, 
 
 /** Renders one card at full size — used by /card view and flexing. */
 export async function renderCard(card: OwnedCard): Promise<Buffer> {
+  // Emoji must be fetched before drawing, because the draw helpers are
+  // synchronous. Collected generically from the options so adding a field later
+  // cannot silently leave its emoji unrendered.
+  await preloadEmoji(...collectStrings(card));
   const canvas = createCanvas(CARD_W, CARD_H);
   const ctx = canvas.getContext('2d');
   const meta = RARITIES[card.rarity] ?? RARITIES.common;
@@ -55,7 +60,7 @@ export async function renderCard(card: OwnedCard): Promise<Buffer> {
     ctx.fillStyle = MUTED;
     ctx.font = 'bold 20px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Artwork unavailable', CARD_W / 2, 12 + artH / 2);
+    drawText(ctx, 'Artwork unavailable', CARD_W / 2, 12 + artH / 2);
     ctx.textAlign = 'left';
   }
   ctx.restore();
@@ -68,7 +73,7 @@ export async function renderCard(card: OwnedCard): Promise<Buffer> {
   ctx.fillStyle = '#101216';
   ctx.font = 'bold 15px sans-serif';
   ctx.textBaseline = 'middle';
-  ctx.fillText(meta.label.toUpperCase(), 38, 40);
+  drawText(ctx, meta.label.toUpperCase(), 38, 40);
 
   // Level badge (right)
   const lvlText = `Lv.${Math.max(1, card.level)}`;
@@ -77,19 +82,19 @@ export async function renderCard(card: OwnedCard): Promise<Buffer> {
   ctx.fill();
   ctx.fillStyle = TEXT;
   ctx.textAlign = 'center';
-  ctx.fillText(lvlText, CARD_W - 58, 40);
+  drawText(ctx, lvlText, CARD_W - 58, 40);
   ctx.textAlign = 'left';
 
   // ── Name + source ────────────────────────────────────────────────────────
   ctx.fillStyle = TEXT;
   ctx.font = 'bold 27px sans-serif';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(fitText(ctx, card.name, CARD_W - 48), 24, 430);
+  drawText(ctx, fitText(ctx, card.name, CARD_W - 48), 24, 430);
 
   if (card.animeName) {
     ctx.fillStyle = MUTED;
     ctx.font = '16px sans-serif';
-    ctx.fillText(fitText(ctx, card.animeName, CARD_W - 48), 24, 454);
+    drawText(ctx, fitText(ctx, card.animeName, CARD_W - 48), 24, 454);
   }
 
   // ── Stat row ─────────────────────────────────────────────────────────────
@@ -109,11 +114,11 @@ export async function renderCard(card: OwnedCard): Promise<Buffer> {
     ctx.fillStyle = MUTED;
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(label, x + cellW / 2, statY + 22);
+    drawText(ctx, label, x + cellW / 2, statY + 22);
 
     ctx.fillStyle = TEXT;
     ctx.font = 'bold 21px sans-serif';
-    ctx.fillText(value, x + cellW / 2, statY + 48);
+    drawText(ctx, value, x + cellW / 2, statY + 48);
   });
   ctx.textAlign = 'left';
 
@@ -123,7 +128,7 @@ export async function renderCard(card: OwnedCard): Promise<Buffer> {
   const extras = [`#${card.id}`, `${fmtNum(card.favorites)} favourites`];
   if ((card.copies ?? 0) > 0) extras.push(`x${card.copies + 1} copies`);
   if (card.locked) extras.push('locked');
-  ctx.fillText(fitText(ctx, extras.join(' · '), CARD_W - 48), 24, 560);
+  drawText(ctx, fitText(ctx, extras.join(' · '), CARD_W - 48), 24, 560);
 
   drawRarityBorder(ctx, 0, 0, CARD_W, CARD_H, meta.colour);
   return canvas.toBuffer('image/png');
@@ -138,6 +143,10 @@ export async function renderCollection(opts: {
   totalCards: number;
 }): Promise<Buffer> {
   const COLS = 3;
+  // Emoji must be fetched before drawing, because the draw helpers are
+  // synchronous. Collected generically from the options so adding a field later
+  // cannot silently leave its emoji unrendered.
+  await preloadEmoji(...collectStrings(opts));
   const TILE_W = 210, TILE_H = 290, GAP = 16, PAD = 24;
   const HEADER = 84;
   const rows = Math.max(1, Math.ceil(opts.cards.length / COLS));
@@ -153,10 +162,10 @@ export async function renderCollection(opts: {
 
   ctx.fillStyle = TEXT;
   ctx.font = 'bold 30px sans-serif';
-  ctx.fillText(fitText(ctx, `${opts.username}'s Collection`, W - PAD * 2), PAD, 50);
+  drawText(ctx, fitText(ctx, `${opts.username}'s Collection`, W - PAD * 2), PAD, 50);
   ctx.fillStyle = MUTED;
   ctx.font = '16px sans-serif';
-  ctx.fillText(`${opts.totalCards} card${opts.totalCards !== 1 ? 's' : ''} · page ${opts.page} of ${opts.totalPages}`, PAD, 74);
+  drawText(ctx, `${opts.totalCards} card${opts.totalCards !== 1 ? 's' : ''} · page ${opts.page} of ${opts.totalPages}`, PAD, 74);
 
   // Load all artwork in parallel — sequential fetches made a 9-card page slow.
   const images = await Promise.all(opts.cards.map((c) => tryLoadImage(c.imageUrl)));
@@ -197,19 +206,19 @@ export async function renderCollection(opts: {
     ctx.fillStyle = TEXT;
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`Lv.${Math.max(1, card.level)}`, x + TILE_W - 38, y + 28);
+    drawText(ctx, `Lv.${Math.max(1, card.level)}`, x + TILE_W - 38, y + 28);
     ctx.textAlign = 'left';
 
     ctx.fillStyle = TEXT;
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(fitText(ctx, card.name, TILE_W - 24), x + 12, y + artH + 34);
+    drawText(ctx, fitText(ctx, card.name, TILE_W - 24), x + 12, y + artH + 34);
 
     ctx.fillStyle = MUTED;
     ctx.font = '13px sans-serif';
-    ctx.fillText(`ATK ${fmtNum(stats.attack)} · HP ${fmtNum(stats.health)}`, x + 12, y + artH + 56);
+    drawText(ctx, `ATK ${fmtNum(stats.attack)} · HP ${fmtNum(stats.health)}`, x + 12, y + artH + 56);
     ctx.fillStyle = meta.colour;
     ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(meta.label.toUpperCase(), x + 12, y + artH + 76);
+    drawText(ctx, meta.label.toUpperCase(), x + 12, y + artH + 76);
 
     ctx.strokeStyle = meta.colour;
     ctx.lineWidth = 2;
@@ -219,7 +228,7 @@ export async function renderCollection(opts: {
 
   ctx.fillStyle = MUTED;
   ctx.font = '13px sans-serif';
-  ctx.fillText('/card view <name> to inspect · /auction list to sell', PAD, H - 18);
+  drawText(ctx, '/card view <name> to inspect · /auction list to sell', PAD, H - 18);
 
   return canvas.toBuffer('image/png');
 }

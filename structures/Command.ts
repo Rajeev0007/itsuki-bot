@@ -3,7 +3,8 @@
  * @description Base class for all slash/prefix hybrid commands.
  */
 
-import { InteractionContextType } from 'discord.js';
+import { InteractionContextType, ApplicationIntegrationType } from 'discord.js';
+import config from '../config/config';
 import type {
   SlashCommandBuilder,
   SlashCommandOptionsOnlyBuilder,
@@ -17,6 +18,14 @@ import type {
 const CTX = InteractionContextType as unknown as Record<string, number> | undefined;
 const CTX_GUILD   = Number(CTX?.Guild ?? 0);
 const CTX_BOT_DM  = Number(CTX?.BotDM ?? 1);
+/** Group DMs and DMs with other users. Only valid on user-installable commands. */
+const CTX_PRIVATE = Number(CTX?.PrivateChannel ?? 2);
+
+const INT = ApplicationIntegrationType as unknown as Record<string, number> | undefined;
+/** Installed to a server. */
+const INSTALL_GUILD = Number(INT?.GuildInstall ?? 0);
+/** Installed to a user account — "Add to my apps". */
+const INSTALL_USER  = Number(INT?.UserInstall ?? 1);
 
 export type SlashCommandData =
   | SlashCommandBuilder
@@ -53,6 +62,14 @@ export interface CommandOptions {
   autocomplete?: ((interaction: AutocompleteInteraction, client?: Client) => Promise<void>) | null;
   /** Additional names the command can be invoked with via prefix (e.g. ['bal'] for 'balance'). */
   aliases?: string[];
+  /**
+   * Offer this command to users who installed the bot to their own account
+   * ("Add to my apps") rather than to a server.
+   *
+   * Left undefined it is inferred, which is almost always what you want — see
+   * the Command constructor. Set it explicitly only to override that.
+   */
+  userInstall?: boolean;
 }
 
 export class Command {
@@ -70,6 +87,8 @@ export class Command {
   maintenance: boolean;
   autocomplete: CommandOptions['autocomplete'];
   aliases: string[];
+  /** Whether this command is registered for user (account-level) installs. */
+  userInstall: boolean;
 
   constructor(options: CommandOptions) {
     if (!options.data)    throw new Error('[Command] "data" (SlashCommandBuilder) is required.');
@@ -92,29 +111,64 @@ export class Command {
     this.autocomplete = options.autocomplete ?? null;
     this.aliases      = options.aliases      ?? [];
 
+    // A command carrying `default_member_permissions` is inherently a
+    // guild-moderation command: that field is meaningless outside a server, so
+    // offering it in a user-install context would show a command that can never
+    // work. Detected from the builder so individual commands need no annotation.
+    const hasMemberPerms = Boolean(
+      (this.data as { default_member_permissions?: unknown }).default_member_permissions,
+    );
+
+    // Inferred rather than opt-in, so new commands are user-installable by
+    // default and only the genuinely server-bound ones are excluded.
+    this.userInstall = options.userInstall
+      ?? (config.userInstall && !this.guildOnly && !this.ownerOnly && !hasMemberPerms);
+
     this._applyContexts();
   }
 
   /**
-   * Declares to Discord where this command may be invoked, derived from
-   * `guildOnly` so the registration can never disagree with the runtime guard.
+   * Declares to Discord WHERE this command may be invoked and HOW the app may be
+   * installed. Both are derived from the command's own flags so the registration
+   * can never disagree with the runtime guards.
    *
-   * - guild-only  → `[Guild]`, so it isn't even offered in DMs
-   * - otherwise   → `[Guild, BotDM]`
+   * `integration_types` is the field that makes account-level installs work.
+   * Omitting it — as this used to — makes Discord default to `[GuildInstall]`,
+   * which is why a user who chose "Add to my apps" saw no commands at all: as far
+   * as Discord was concerned, none of them existed outside a server.
    *
-   * `PrivateChannel` (group DMs) is deliberately excluded: Discord only accepts
-   * that context for user-installable apps, and this is a guild-installed bot.
+   * The two fields are NOT independent. `PrivateChannel` (group DMs and DMs with
+   * other people) is only accepted on a user-installable command, so it is added
+   * only when user install is actually enabled — otherwise Discord rejects the
+   * whole registration.
+   *
+   *   guild-only            → contexts [Guild],                    install [Guild]
+   *   user-installable      → contexts [Guild, BotDM, PrivateChannel], install [Guild, User]
+   *   otherwise             → contexts [Guild, BotDM],             install [Guild]
    */
   private _applyContexts(): void {
     const builder = this.data as unknown as {
       setContexts?: (contexts: number[]) => unknown;
+      setIntegrationTypes?: (types: number[]) => unknown;
     };
-    if (typeof builder.setContexts !== 'function') return;
-    try {
-      builder.setContexts(this.guildOnly ? [CTX_GUILD] : [CTX_GUILD, CTX_BOT_DM]);
-    } catch {
-      /* Older builder without context support — registration falls back to
-         Discord's default (all contexts), and the runtime guard still holds. */
+
+    const contexts = this.guildOnly
+      ? [CTX_GUILD]
+      : (this.userInstall
+        ? [CTX_GUILD, CTX_BOT_DM, CTX_PRIVATE]
+        : [CTX_GUILD, CTX_BOT_DM]);
+
+    const integrationTypes = this.userInstall
+      ? [INSTALL_GUILD, INSTALL_USER]
+      : [INSTALL_GUILD];
+
+    // Each is applied independently: an older builder may support one and not
+    // the other, and having contexts still take effect is better than neither.
+    if (typeof builder.setContexts === 'function') {
+      try { builder.setContexts(contexts); } catch { /* unsupported build */ }
+    }
+    if (typeof builder.setIntegrationTypes === 'function') {
+      try { builder.setIntegrationTypes(integrationTypes); } catch { /* unsupported build */ }
     }
   }
 

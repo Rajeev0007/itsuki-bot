@@ -30,7 +30,7 @@ export interface Ctx {
   globalAlpha: number;
   fillRect: (x: number, y: number, w: number, h: number) => void;
   clearRect: (x: number, y: number, w: number, h: number) => void;
-  fillText: (t: string, x: number, y: number) => void;
+  fillText: (t: string, x: number, y: number, maxWidth?: number) => void;
   strokeText: (t: string, x: number, y: number) => void;
   measureText: (t: string) => { width: number };
   stroke: () => void;
@@ -127,21 +127,28 @@ export function fmtNum(n: number | null | undefined): string {
 }
 
 /**
+ * Emoji-aware text helpers.
+ *
+ * Re-exported here so every renderer keeps importing from one place. Cairo
+ * cannot render colour emoji fonts at all, so emoji are composited as images —
+ * see EmojiText for the detail.
+ */
+export {
+  drawText, measureText, preloadEmoji, collectStrings, hasEmoji, splitRuns,
+} from './EmojiText';
+
+/**
  * Truncates text to fit `maxWidth` at the context's current font, appending an
  * ellipsis. Measuring matters here — anime character names are long and would
  * otherwise run straight off the edge of a card.
+ *
+ * Delegates to the emoji-aware implementation: the previous binary search sliced
+ * by string index, which cuts multi-codepoint emoji in half and leaves a
+ * fragment that renders as garbage. It also measured with ctx.measureText, which
+ * reports roughly zero width for an emoji Cairo cannot draw, so a name full of
+ * them was never considered too long.
  */
-export function fitText(ctx: Ctx, text: string, maxWidth: number): string {
-  const str = String(text ?? '');
-  if (ctx.measureText(str).width <= maxWidth) return str;
-  let lo = 0, hi = str.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1) / 2);
-    if (ctx.measureText(`${str.slice(0, mid)}…`).width <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo > 0 ? `${str.slice(0, lo)}…` : '…';
-}
+export { fitText } from './EmojiText';
 
 /** Draws an image cropped to fill a box, preserving aspect ratio (CSS cover). */
 export function drawImageCover(

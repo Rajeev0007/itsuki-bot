@@ -8,6 +8,7 @@
 
 import {
   createCanvas, roundRect, fitText, fmtNum, tryLoadImage, drawImageCover,
+  drawText, preloadEmoji, collectStrings,
   type Ctx,
 } from './canvas/CanvasKit';
 
@@ -45,6 +46,10 @@ export async function renderLeaderboard(opts: {
   totalPages: number;
 }): Promise<Buffer> {
   const PAD = 28;
+  // Emoji must be fetched before drawing, because the draw helpers are
+  // synchronous. Collected generically from the options so adding a field later
+  // cannot silently leave its emoji unrendered.
+  await preloadEmoji(...collectStrings(opts));
   const ROW_H = 62;
   const HEADER = 96;
   const W = 900;
@@ -60,10 +65,10 @@ export async function renderLeaderboard(opts: {
   ctx.fillStyle = TEXT;
   ctx.font = 'bold 34px sans-serif';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(fitText(ctx, opts.title, W - PAD * 2), PAD, 52);
+  drawText(ctx, fitText(ctx, opts.title, W - PAD * 2), PAD, 52);
   ctx.fillStyle = MUTED;
   ctx.font = '17px sans-serif';
-  ctx.fillText(fitText(ctx, opts.subtitle, W - PAD * 2), PAD, 80);
+  drawText(ctx, fitText(ctx, opts.subtitle, W - PAD * 2), PAD, 80);
 
   ctx.strokeStyle = '#2A2E36';
   ctx.lineWidth = 2;
@@ -95,7 +100,7 @@ export async function renderLeaderboard(opts: {
     ctx.fillStyle = rankColour(row.rank);
     ctx.font = 'bold 22px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`#${row.rank}`, PAD + 42, y + h / 2 + 8);
+    drawText(ctx, `#${row.rank}`, PAD + 42, y + h / 2 + 8);
     ctx.textAlign = 'left';
 
     // Avatar (circular)
@@ -124,11 +129,11 @@ export async function renderLeaderboard(opts: {
     ctx.font = 'bold 20px sans-serif';
     const valueW = ctx.measureText(valueText).width;
     const nameMax = W - PAD * 2 - 150 - valueW - 40;
-    ctx.fillText(fitText(ctx, row.name, nameMax), avX + avSize + 16, y + h / 2 + 7);
+    drawText(ctx, fitText(ctx, row.name, nameMax), avX + avSize + 16, y + h / 2 + 7);
 
     ctx.fillStyle = ACCENT;
     ctx.textAlign = 'right';
-    ctx.fillText(valueText, W - PAD - 18, y + h / 2 + 7);
+    drawText(ctx, valueText, W - PAD - 18, y + h / 2 + 7);
     ctx.textAlign = 'left';
   }
 
@@ -136,13 +141,13 @@ export async function renderLeaderboard(opts: {
     ctx.fillStyle = MUTED;
     ctx.font = '20px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('No data yet', W / 2, HEADER + PAD + 34);
+    drawText(ctx, 'No data yet', W / 2, HEADER + PAD + 34);
     ctx.textAlign = 'left';
   }
 
   ctx.fillStyle = MUTED;
   ctx.font = '14px sans-serif';
-  ctx.fillText(`Page ${opts.page} of ${opts.totalPages}`, PAD, H - 14);
+  drawText(ctx, `Page ${opts.page} of ${opts.totalPages}`, PAD, H - 14);
 
   return canvas.toBuffer('image/png');
 }
@@ -158,6 +163,10 @@ export async function renderUserStats(opts: {
   voiceRank: number | null;
   series: Array<{ day: string; messages: number }>;
 }): Promise<Buffer> {
+  // Emoji must be fetched before drawing, because the draw helpers are
+  // synchronous. Collected generically from the options so adding a field later
+  // cannot silently leave its emoji unrendered.
+  await preloadEmoji(...collectStrings(opts));
   const W = 860, H = 420;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
@@ -179,14 +188,14 @@ export async function renderUserStats(opts: {
 
   ctx.fillStyle = TEXT;
   ctx.font = 'bold 30px sans-serif';
-  ctx.fillText(fitText(ctx, opts.username, W - 160), 116, 58);
+  drawText(ctx, fitText(ctx, opts.username, W - 160), 116, 58);
   ctx.fillStyle = MUTED;
   ctx.font = '16px sans-serif';
   const rankBits = [
     opts.messageRank ? `#${opts.messageRank} messages` : null,
     opts.voiceRank ? `#${opts.voiceRank} voice` : null,
   ].filter(Boolean);
-  ctx.fillText(rankBits.length ? `Server rank — ${rankBits.join(' · ')}` : 'Server activity', 116, 84);
+  drawText(ctx, rankBits.length ? `Server rank — ${rankBits.join(' · ')}` : 'Server activity', 116, 84);
 
   // Stat tiles
   const tiles: Array<[string, string]> = [
@@ -203,10 +212,10 @@ export async function renderUserStats(opts: {
     ctx.fillStyle = MUTED;
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(label, x + tileW / 2, 144);
+    drawText(ctx, label, x + tileW / 2, 144);
     ctx.fillStyle = TEXT;
     ctx.font = 'bold 27px sans-serif';
-    ctx.fillText(value, x + tileW / 2, 178);
+    drawText(ctx, value, x + tileW / 2, 178);
     ctx.textAlign = 'left';
   });
 
@@ -218,7 +227,7 @@ export async function renderUserStats(opts: {
 
   ctx.fillStyle = MUTED;
   ctx.font = 'bold 12px sans-serif';
-  ctx.fillText('MESSAGES — LAST 14 DAYS', chartX + 16, chartY + 24);
+  drawText(ctx, 'MESSAGES — LAST 14 DAYS', chartX + 16, chartY + 24);
 
   const series = opts.series.slice(-14);
   // Guard the divisor: an all-zero series would otherwise divide by zero and
@@ -240,9 +249,9 @@ export async function renderUserStats(opts: {
 
   ctx.fillStyle = MUTED;
   ctx.font = '11px sans-serif';
-  ctx.fillText(`peak ${fmtNum(peak)}/day`, chartX + 16, chartY + chartH - 8);
+  drawText(ctx, `peak ${fmtNum(peak)}/day`, chartX + 16, chartY + chartH - 8);
   ctx.textAlign = 'right';
-  ctx.fillText('today', chartX + chartW - 16, chartY + chartH - 8);
+  drawText(ctx, 'today', chartX + chartW - 16, chartY + chartH - 8);
   ctx.textAlign = 'left';
 
   return canvas.toBuffer('image/png');

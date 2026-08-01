@@ -257,6 +257,17 @@ const config = {
   /* Owners */
   owners: (process.env.BOT_OWNERS ?? '').split(',').map((id) => id.trim()).filter(Boolean),
 
+  /**
+   * Register commands for account-level installs ("Add to my apps") as well as
+   * server installs.
+   *
+   * This must ALSO be enabled in the Discord Developer Portal under
+   * Installation → Installation Contexts → User Install. If it is not, Discord
+   * rejects the registration and AutoDeploy retries without it, logging what to
+   * change. Set USER_INSTALL=false to opt out entirely.
+   */
+  userInstall: process.env.USER_INSTALL !== 'false',
+
   /* Database */
   mongo: {
     /**
@@ -274,7 +285,12 @@ const config = {
      * Fail fast on a dead server instead of letting every command hang for the
      * driver's 30s default.
      */
-    serverSelectionTimeoutMS: Number(process.env.MONGO_TIMEOUT_MS ?? 8000),
+    serverSelectionTimeoutMS: (() => {
+      // An empty or non-numeric value would become NaN, which the driver reads
+      // as 0 and then fails every server selection immediately.
+      const parsed = Number(process.env.MONGO_TIMEOUT_MS);
+      return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 8000;
+    })(),
   },
 };
 
