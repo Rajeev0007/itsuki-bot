@@ -1,306 +1,538 @@
 /**
  * @file help.ts
- * @description Professional help menu with a category select menu inside a V2 container.
+ * @description Command browser: an overview, per-category listings, and a
+ * per-command detail view.
+ *
+ * ── Everything is derived from the command registry ─────────────────────────
+ * This file used to hold hand-written arrays of command names per category, a
+ * hand-written set of server-only commands, and a hand-written DM notice. Three
+ * separate lists that all had to be updated by hand every time a command was
+ * added, and nothing failed when they were not — a forgotten entry simply made
+ * the command invisible in help, and a renamed one left a dead row.
+ *
+ * Now the only thing written by hand is presentation: a label, a one-line
+ * description, a colour and an ordering per category. Which commands exist,
+ * which category they belong to, which need a server, which need a vote and
+ * what their aliases are all come from the loaded Command objects, so help
+ * cannot drift from the bot.
  */
 
 import {
   SlashCommandBuilder, MessageFlags,
   ContainerBuilder, SectionBuilder, TextDisplayBuilder, ThumbnailBuilder,
   SeparatorBuilder, SeparatorSpacingSize,
-  ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
-  type ChatInputCommandInteraction, type Client, Collection,
-  type StringSelectMenuInteraction,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+  type ChatInputCommandInteraction, type Client, type Collection,
+  type AutocompleteInteraction, type StringSelectMenuInteraction,
 } from 'discord.js';
 import { Command } from '../../structures/Command';
-import config      from '../../config/config';
+import config from '../../config/config';
 import { getStore } from '../../database/Store';
+import logger from '../../utils/Logger';
 
 const guildsDB = getStore('guilds');
 
-// ── Category definitions ──────────────────────────────────────────────────────
-// Ordered deliberately: the bot's main draws first (economy/games/social),
-// reference/meta categories last. Owner tools are handled separately below
-// and only shown to actual bot owners.
-const CATEGORIES: Record<string, { label: string; desc: string; color: number; commands: string[] }> = {
-  economy:     { label: 'Economy',     desc: 'Earn, spend, and manage your coins',               color: config.colors.gold,    commands: ['balance','daily','weekly','work','crime','rob','beg','search','deposit','withdraw','transfer','prestige','richest'] },
-  gambling:    { label: 'Gambling',    desc: 'Risk your coins for big rewards',                   color: config.colors.danger,  commands: ['slots','blackjack','coinflip','dice','roulette','crash','mines'] },
-  games:       { label: 'Games',       desc: 'Play against friends or the bot for fun and coins', color: config.colors.teal,    commands: ['akinator','hangman','connect4','tictactoe','rps','trivia'] },
-  social:      { label: 'Social',      desc: 'Interact and emote with other users',               color: config.colors.social,  commands: ['hug','kiss','pat','slap','cuddle','bonk','wave','dance','cry','poke'] },
-  anime:       { label: 'Anime',       desc: 'Anime images and character search',                 color: config.colors.anime,   commands: ['anime','waifu'] },
-  music:       { label: 'Music',       desc: 'Play music in voice channels',                      color: config.colors.purple,  commands: ['play','queue','skip','stop','leave','pause','resume','loop','nowplaying','seek','shuffle','volume','247','autoplay','setvoice'] },
-  shop:        { label: 'Shop',        desc: 'Browse and buy items',                              color: config.colors.gold,    commands: ['shop'] },
-  inventory:   { label: 'Inventory',   desc: 'View and manage your items',                        color: config.colors.info,    commands: ['inventory'] },
-  pets:        { label: 'Pets',        desc: 'Hatch, feed, and level up virtual pets',             color: config.colors.success, commands: ['pet'] },
-  profile:     { label: 'Profile',     desc: 'Your stats, XP, levels, and achievements',           color: config.colors.primary, commands: ['profile'] },
-  leaderboard: { label: 'Leaderboard', desc: 'Global rankings and top players',                    color: config.colors.primary, commands: ['leaderboard'] },
-  cards:       { label: 'Anime Cards', desc: 'Roll, collect, battle and auction anime characters',  color: config.colors.anime,   commands: ['roll','collection','card','upgrade','battle','auction'] },
-  stats:       { label: 'Stats',       desc: 'Per-user activity tracking (server only)',            color: config.colors.teal,    commands: ['userstats'] },
-  gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',                 color: config.colors.info,    commands: ['minecraft','cs2','valorant'] },
-  moderation:  { label: 'Moderation',  desc: 'Keep your server in order (server only)',           color: config.colors.danger,  commands: ['ban','unban','kick','timeout','untimeout','warn','purge','slowmode','lock','modlog','verify','backup','welcomer'] },
-  utility:     { label: 'Utility',     desc: 'Bot information and server tools',                  color: config.colors.dark,    commands: ['help','ping','stats','botbrand','vote','fetchfile','grab','steal','record','msgbuilder','redeem'] },
+// ── Presentation only ─────────────────────────────────────────────────────────
+/**
+ * Ordered deliberately: the bot's main draws first, reference and meta last.
+ * A category present on a command but missing here still shows up, under
+ * FALLBACK_META — so a new category can never hide its commands.
+ */
+const CATEGORY_META: Record<string, { label: string; desc: string; color: number }> = {
+  economy:     { label: 'Economy',     desc: 'Earn, spend and manage your coins',           color: config.colors.gold },
+  gambling:    { label: 'Gambling',    desc: 'Risk coins for bigger rewards',               color: config.colors.danger },
+  games:       { label: 'Games',       desc: 'Play against friends or the bot',             color: config.colors.teal },
+  cards:       { label: 'Anime Cards', desc: 'Roll, collect, battle and trade characters',  color: config.colors.anime },
+  social:      { label: 'Social',      desc: 'React to and interact with other people',     color: config.colors.social },
+  anime:       { label: 'Anime',       desc: 'Anime images and character search',           color: config.colors.anime },
+  music:       { label: 'Music',       desc: 'Play music in a voice channel',               color: config.colors.purple },
+  shop:        { label: 'Shop',        desc: 'Browse and buy items',                        color: config.colors.gold },
+  inventory:   { label: 'Inventory',   desc: 'View and use what you own',                   color: config.colors.info },
+  pets:        { label: 'Pets',        desc: 'Hatch, feed and raise a pet',                 color: config.colors.success },
+  profile:     { label: 'Profile',     desc: 'Your level, XP and achievements',             color: config.colors.primary },
+  leaderboard: { label: 'Leaderboard', desc: 'Rankings and top players',                    color: config.colors.primary },
+  stats:       { label: 'Activity',    desc: 'Per-server message and voice tracking',       color: config.colors.teal },
+  gaming:      { label: 'Game Stats',  desc: 'Minecraft, CS2 and Valorant lookups',         color: config.colors.info },
+  moderation:  { label: 'Moderation',  desc: 'Keep your server in order',                   color: config.colors.danger },
+  utility:     { label: 'Utility',     desc: 'Bot info and server tools',                   color: config.colors.dark },
+  owner:       { label: 'Owner',       desc: 'Bot management, owners only',                 color: config.colors.danger },
 };
 
-const OWNER_CATEGORY = {
-  label: 'Owner', desc: 'Bot management tools (owners only)', color: config.colors.danger,
-  commands: ['panel','botconfig','reload','voteconfig','premiumadmin','premiumkey','maintenance','blacklist','noprefix','eval','shutdown'],
-};
+const FALLBACK_META = { label: 'Other', desc: 'Uncategorised commands', color: config.colors.dark };
 
-function isOwner(userId: string): boolean {
-  return config.owners.includes(userId);
+/** Category render order. Anything not named here is appended alphabetically. */
+const ORDER = [
+  'economy', 'gambling', 'games', 'cards', 'social', 'anime', 'music',
+  'shop', 'inventory', 'pets', 'profile', 'leaderboard', 'stats', 'gaming',
+  'moderation', 'utility',
+];
+
+/** Discord allows 25 select options; one slot is spent on Overview. */
+const MAX_SELECT_CATEGORIES = 24;
+
+function meta(key: string) {
+  return CATEGORY_META[key] ?? { ...FALLBACK_META, label: key ? key[0].toUpperCase() + key.slice(1) : FALLBACK_META.label };
+}
+
+// ── Registry derived from the loaded commands ────────────────────────────────
+
+interface CmdInfo {
+  name: string;
+  description: string;
+  category: string;
+  guildOnly: boolean;
+  ownerOnly: boolean;
+  voteLocked: boolean;
+  premiumOnly: boolean;
+  aliases: string[];
+  /** Subcommand names, so the detail view can show what a command supports. */
+  subcommands: string[];
+}
+
+function readCommands(client: Client | undefined): CmdInfo[] {
+  const collection = (client as unknown as { commands?: Collection<string, Command> })?.commands;
+  if (!collection) return [];
+
+  const out: CmdInfo[] = [];
+  for (const [key, cmd] of collection) {
+    // Aliases are registered as additional keys pointing at the same command,
+    // so without this every aliased command would be listed several times.
+    if (!cmd?.data || key !== cmd.name) continue;
+
+    let description = '';
+    let subcommands: string[] = [];
+    try {
+      const json = (cmd.data as { toJSON?: () => { description?: string; options?: Array<{ name: string; type: number }> } }).toJSON?.();
+      description = json?.description ?? '';
+      subcommands = (json?.options ?? [])
+        .filter((o) => o.type === 1 || o.type === 2)   // subcommand / subcommand group
+        .map((o) => o.name);
+    } catch {
+      description = (cmd.data as { description?: string }).description ?? '';
+    }
+
+    out.push({
+      name: cmd.name,
+      description,
+      category: cmd.category || 'utility',
+      guildOnly: Boolean(cmd.guildOnly),
+      ownerOnly: Boolean(cmd.ownerOnly),
+      voteLocked: Boolean(cmd.voteLocked),
+      premiumOnly: Boolean(cmd.premiumOnly),
+      aliases: Array.isArray(cmd.aliases) ? cmd.aliases : [],
+      subcommands,
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Groups into categories, honouring ORDER and hiding owner tools from others. */
+function groupCommands(all: CmdInfo[], viewerIsOwner: boolean): Array<{ key: string; commands: CmdInfo[] }> {
+  const buckets = new Map<string, CmdInfo[]>();
+
+  for (const cmd of all) {
+    // Owner tools live in their own category regardless of folder, so a
+    // misfiled owner command can never leak into a public listing.
+    const key = cmd.ownerOnly ? 'owner' : cmd.category;
+    if (key === 'owner' && !viewerIsOwner) continue;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(cmd);
+  }
+
+  const known = ORDER.filter((k) => buckets.has(k));
+  const extra = [...buckets.keys()]
+    .filter((k) => !ORDER.includes(k) && k !== 'owner')
+    .sort();
+
+  const keys = [...known, ...extra];
+  if (buckets.has('owner')) keys.push('owner');   // always last
+
+  return keys.map((key) => ({ key, commands: buckets.get(key)! }));
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+
+/**
+ * Short markers for the gates a command sits behind.
+ *
+ * Worth showing: someone reading help otherwise discovers a vote lock only by
+ * running the command and being refused.
+ */
+function markers(cmd: CmdInfo, inDM: boolean, hideServerTag = false): string {
+  const tags: string[] = [];
+  if (cmd.guildOnly && !hideServerTag) tags.push(inDM ? 'server only' : 'server');
+  if (cmd.voteLocked) tags.push('vote');
+  if (cmd.premiumOnly) tags.push('premium');
+  return tags.length ? `  *(${tags.join(', ')})*` : '';
 }
 
 /**
- * Commands that only work inside a server (they need a voice channel, guild
- * settings, or a second human player). Kept in sync with the server-only flag
- * declared on those commands, so DM users aren't shown things they can't run.
+ * One line per command.
+ *
+ * Deliberately NOT a padded monospace table any more. Three reasons: aligned
+ * columns need a code block, a code block cannot render markdown so nothing can
+ * be emphasised, a single backtick in any command description would break out of
+ * it, and it wraps badly on narrow screens. Padding outside a code block does
+ * not align at all, because Discord renders body text in a proportional font.
  */
-const SERVER_ONLY = new Set([
-  'play', 'queue', 'skip', 'stop', 'leave', 'pause', 'resume', 'loop',
-  'nowplaying', 'seek', 'shuffle', 'volume', '247', 'autoplay', 'setvoice',
-  'botbrand', 'tictactoe',
-  // Moderation acts on servers, members and channels.
-  'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'purge',
-  'slowmode', 'lock', 'modlog', 'verify', 'backup',
-  // Activity is tracked per server.
-  'userstats',
-  // Needs a voice channel.
-  'record',
-  // Configures per-server vote channels.
-  'voteconfig',
-  // Reads server emojis, icons and channel messages.
-  'grab',
-  // Writes emojis and stickers into a server.
-  'steal',
-  // Needs a second human player.
-  'connect4',
-  // Configures per-server join/leave messages and posts into server channels.
-  'welcomer', 'msgbuilder',
-]);
-
-/** Lists a category's server-only commands, for the DM notice. */
-function serverOnlyIn(commands: string[]): string[] {
-  return commands.filter((c) => SERVER_ONLY.has(c));
+function renderCommands(commands: CmdInfo[], inDM: boolean, hideServerTag = false): string {
+  return commands
+    .map((c) => `\`/${c.name}\`  ${c.description}${markers(c, inDM, hideServerTag)}`)
+    .join('\n');
 }
 
-// ── Builders ──────────────────────────────────────────────────────────────────
-
-function padName(name: string, width: number): string {
-  return name.padEnd(width, ' ');
-}
-
-/** Renders a category's commands as an aligned, monospace list. */
-function renderCommandList(commands: string[], descMap: Map<string, string>): string {
-  const width = Math.max(...commands.map((c) => c.length)) + 1; // +1 for the leading '/'
-  const lines = commands.map((name) => {
-    const desc = descMap.get(name) ?? '';
-    return `${padName('/' + name, width)} ${desc}`;
+function buildOverview(opts: {
+  botName: string;
+  avatarUrl: string;
+  about?: string | null;
+  groups: Array<{ key: string; commands: CmdInfo[] }>;
+  total: number;
+  inDM: boolean;
+  viewerIsOwner: boolean;
+}): ContainerBuilder {
+  // One line per category. Two lines each read as a wall on a phone, and the
+  // description is short enough to sit inline.
+  const lines = opts.groups.map(({ key, commands }) => {
+    const m = meta(key);
+    return `**${m.label}** \`${commands.length}\` — ${m.desc}`;
   });
-  return '```\n' + lines.join('\n') + '\n```';
-}
 
-function buildOverview(
-  botName: string,
-  avatarUrl: string,
-  about: string | null | undefined,
-  viewerIsOwner: boolean,
-  inDM = false,
-): ContainerBuilder {
-  const allCats = viewerIsOwner
-    ? [...Object.entries(CATEGORIES), ['owner', OWNER_CATEGORY] as [string, typeof OWNER_CATEGORY]]
-    : Object.entries(CATEGORIES);
+  const dmBlocked = opts.inDM
+    ? opts.groups.reduce((n, g) => n + g.commands.filter((c) => c.guildOnly).length, 0)
+    : 0;
 
-  const total = allCats.reduce((n, [, c]) => n + c.commands.length, 0);
-  const nameWidth = Math.max(...allCats.map(([, c]) => c.label.length));
-
-  const lines = allCats.map(
-    ([, c]) => `\`${padName(c.label, nameWidth)}\`  ${c.desc}  · ${c.commands.length}`
-  );
+  const footer = [
+    `-# ${opts.total} commands · \`/\` or \`${config.prefix}\` · pick a category below`,
+    `-# \`/help command:name\` shows details for one command`,
+    // Counted, not hardcoded. The old notice named three commands while the
+    // real number had grown to 37.
+    dmBlocked ? `-# ${dmBlocked} commands need a server and are marked below` : '',
+    opts.viewerIsOwner ? '-# Owner commands are registered to the dev server only; their prefix forms work anywhere' : '',
+  ].filter(Boolean).join('\n');
 
   return new ContainerBuilder()
     .setAccentColor(config.colors.primary)
     .addSectionComponents(
       new SectionBuilder()
-        .addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(
-            `# ${botName}\n*${about ?? 'Your all-in-one Discord economy and fun bot'}*`
-          )
-        )
-        .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(lines.join('\n'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+          `## ${opts.botName}\n-# ${opts.about ?? 'Economy, games, music and moderation in one bot'}`,
+        ))
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(opts.avatarUrl)),
     )
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent([
-        `-# ${total} commands total · Use \`/command\` or \`${config.prefix}command\` · Select a category below`,
-        inDM ? '-# You\'re in DMs — Music, Tic-Tac-Toe and Bot Branding need a server.' : '',
-      ].filter(Boolean).join('\n'))
-    );
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 }
 
 function buildCategory(
   key: string,
-  descMap: Map<string, string>,
-  viewerIsOwner: boolean,
-  inDM = false,
+  commands: CmdInfo[],
+  inDM: boolean,
 ): ContainerBuilder {
-  const cat = key === 'owner' && viewerIsOwner ? OWNER_CATEGORY : CATEGORIES[key];
+  const m = meta(key);
+
+  // When the whole category shares a gate, say it once in the header rather than
+  // stamping the same marker onto all 15 music or 13 moderation lines.
+  const allServerOnly = commands.length > 1 && commands.every((c) => c.guildOnly);
+  const heading = [
+    `## ${m.label}`,
+    `-# ${m.desc}`,
+    allServerOnly
+      ? (inDM ? '-# ⚠️ These all need a server — none of them work here in DMs.' : '-# These all need a server.')
+      : '',
+  ].filter(Boolean).join('\n');
 
   const container = new ContainerBuilder()
-    .setAccentColor(cat.color)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`# ${cat.label}\n${cat.desc}`)
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(renderCommandList(cat.commands, descMap))
-    );
+    .setAccentColor(m.color)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(heading))
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+      commands.length ? renderCommands(commands, inDM, allServerOnly) : '-# No commands here.',
+    ));
 
-  // Called from a DM: point out which of these need a server, so nobody tries
-  // to run /play here and wonders why it doesn't respond.
-  const blocked = inDM ? serverOnlyIn(cat.commands) : [];
-  if (blocked.length) {
+  const aliased = commands.filter((c) => c.aliases.length);
+  const footer = [
+    `-# ${commands.length} command${commands.length === 1 ? '' : 's'}`,
+    // 17 commands have aliases and none of them were discoverable anywhere.
+    aliased.length
+      ? `-# Shortcuts: ${aliased.slice(0, 8).map((c) => `\`${config.prefix}${c.aliases[0]}\``).join(' ')}`
+      : '',
+  ].filter(Boolean).join('\n');
+
+  return container
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
+}
+
+/** Detail view for a single command. */
+function buildDetail(cmd: CmdInfo, inDM: boolean): ContainerBuilder {
+  const m = meta(cmd.ownerOnly ? 'owner' : cmd.category);
+
+  const facts: string[] = [`**Category** ${m.label}`];
+  if (cmd.aliases.length) {
+    facts.push(`**Shortcuts** ${cmd.aliases.map((a) => `\`${config.prefix}${a}\``).join(' ')}`);
+  }
+  if (cmd.subcommands.length) {
+    facts.push(`**Subcommands** ${cmd.subcommands.map((s) => `\`${s}\``).join(' ')}`);
+  }
+
+  const gates: string[] = [];
+  if (cmd.guildOnly) gates.push(inDM ? 'Needs a server — not available here in DMs' : 'Needs a server');
+  if (cmd.voteLocked) gates.push('Needs a recent vote, or premium');
+  if (cmd.premiumOnly) gates.push('Premium only');
+  if (cmd.ownerOnly) gates.push('Bot owners only');
+
+  const container = new ContainerBuilder()
+    .setAccentColor(m.color)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+      `## /${cmd.name}\n${cmd.description || '-# No description.'}`,
+    ))
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(facts.join('\n')));
+
+  if (gates.length) {
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        blocked.length === cat.commands.length
-          ? '-# ⚠️ These commands need a server and are unavailable in DMs.'
-          : `-# ⚠️ Server only, unavailable here: ${blocked.map((c) => `\`/${c}\``).join(', ')}`,
+        gates.map((g) => `-# ${g}`).join('\n'),
       ));
   }
 
   return container
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `-# ${cat.commands.length} command${cat.commands.length !== 1 ? 's' : ''} · Works with slash \`/\` and prefix \`${config.prefix}\``
-      )
-    );
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+      `-# Usage: \`/${cmd.name}\` or \`${config.prefix}${cmd.name}\`${cmd.subcommands.length ? ' followed by a subcommand' : ''}`,
+    ));
 }
 
-function buildSelectMenu(active: string, viewerIsOwner: boolean, disabled = false): ActionRowBuilder<StringSelectMenuBuilder> {
+function buildNav(
+  active: string,
+  groups: Array<{ key: string; commands: CmdInfo[] }>,
+  disabled = false,
+): ActionRowBuilder<StringSelectMenuBuilder>[] {
   const menu = new StringSelectMenuBuilder()
     .setCustomId('help_select')
     .setPlaceholder('Browse categories…')
     .setDisabled(disabled)
     .addOptions(
       new StringSelectMenuOptionBuilder()
-        .setValue('overview')
-        .setLabel('Overview')
+        .setValue('overview').setLabel('Overview')
         .setDescription('All categories at a glance')
         .setDefault(active === 'overview'),
-      ...Object.entries(CATEGORIES).map(([key, cat]) =>
-        new StringSelectMenuOptionBuilder()
-          .setValue(key)
-          .setLabel(cat.label)
-          .setDescription(cat.desc.slice(0, 100))
-          .setDefault(key === active)
-      ),
-      ...(viewerIsOwner
-        ? [new StringSelectMenuOptionBuilder()
-            .setValue('owner')
-            .setLabel(OWNER_CATEGORY.label)
-            .setDescription(OWNER_CATEGORY.desc.slice(0, 100))
-            .setDefault(active === 'owner')]
-        : []),
+      // Sliced because Discord rejects a menu with more than 25 options; without
+      // it, adding categories would eventually fail the whole message.
+      ...groups.slice(0, MAX_SELECT_CATEGORIES).map(({ key, commands }) => {
+        const m = meta(key);
+        return new StringSelectMenuOptionBuilder()
+          .setValue(key).setLabel(m.label)
+          .setDescription(`${commands.length} · ${m.desc}`.slice(0, 100))
+          .setDefault(key === active);
+      }),
     );
 
-  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
+}
+
+/** Shown only when the user has navigated away from the overview. */
+function buildHomeRow(disabled = false): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('help_home').setLabel('Overview')
+      .setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+  );
 }
 
 // ── Command ───────────────────────────────────────────────────────────────────
 export default new Command({
   data: new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Browse all bot commands by category.')
-    .addStringOption((o) =>
-      o.setName('category')
-        .setDescription('Jump straight to a category')
-        .addChoices(
-          { name: 'Overview', value: 'overview' },
-          ...Object.entries(CATEGORIES).map(([k, c]) => ({ name: c.label, value: k })),
-        )
-    ),
+    .setDescription('Browse every command, or look one up.')
+    .addStringOption((o) => o.setName('category')
+      .setDescription('Jump straight to a category')
+      .setAutocomplete(true))
+    .addStringOption((o) => o.setName('command')
+      .setDescription('Show details for one command')
+      .setAutocomplete(true)),
   category: 'utility',
   aliases: ['h', 'commands', 'cmds'],
   cooldown: 3000,
 
+  async autocomplete(interaction: AutocompleteInteraction, client?: Client) {
+    try {
+      const focused = interaction.options.getFocused(true) as unknown as { name: string; value: string };
+      const query = String(focused?.value ?? '').toLowerCase();
+      const viewerIsOwner = config.owners.includes(interaction.user.id);
+      const all = readCommands(client ?? interaction.client);
+
+      if (focused?.name === 'command') {
+        const pool = all.filter((c) => viewerIsOwner || !c.ownerOnly);
+        return interaction.respond(
+          pool.filter((c) => c.name.includes(query) || c.aliases.some((a) => a.includes(query)))
+            .slice(0, 25)
+            .map((c) => ({ name: `/${c.name} — ${c.description}`.slice(0, 100), value: c.name })),
+        );
+      }
+
+      const groups = groupCommands(all, viewerIsOwner);
+      return interaction.respond(
+        [{ key: 'overview', commands: [] }, ...groups]
+          .filter(({ key }) => key.includes(query) || meta(key).label.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map(({ key, commands }) => ({
+            name: key === 'overview' ? 'Overview' : `${meta(key).label} (${commands.length})`,
+            value: key,
+          })),
+      );
+    } catch {
+      // Autocomplete must always answer, or the client shows a spinner forever.
+      return interaction.respond([]).catch(() => null);
+    }
+  },
+
   async execute(interaction: ChatInputCommandInteraction, client?: Client) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
 
-    // Build a name→description map from loaded commands
-    const cmdCollection = (client as unknown as { commands?: Collection<string, Command> })?.commands;
-    const descMap = new Map<string, string>();
-    if (cmdCollection) {
-      for (const [name, cmd] of cmdCollection) {
-        descMap.set(name, (cmd.data as { description?: string }).description ?? '');
-      }
-    }
-
-    const viewerIsOwner = isOwner(interaction.user.id);
+    const viewerIsOwner = config.owners.includes(interaction.user.id);
+    const inDM = !interaction.guild;
+    const all = readCommands(client ?? interaction.client);
+    const groups = groupCommands(all, viewerIsOwner);
+    const total = groups.reduce((n, g) => n + g.commands.length, 0);
 
     const branding = interaction.guild
       ? (await guildsDB.get(`${interaction.guild.id}.branding`) as { nickname?: string | null; about?: string | null } | undefined)
       : undefined;
-    const brandedName = branding?.nickname || config.bot.name;
-    const avatarUrl = (client?.user ?? interaction.client.user).displayAvatarURL({ size: 256 });
+    const botName = branding?.nickname || config.bot.name;
+    // client.user is null until READY, and a null here would throw inside the
+    // deferred reply rather than just omitting a thumbnail.
+    const botUser = client?.user ?? interaction.client.user;
+    const avatarUrl = botUser?.displayAvatarURL({ size: 256 })
+      ?? 'https://cdn.discordapp.com/embed/avatars/0.png';
 
-    const initCatRaw = interaction.options.getString('category') ?? 'overview';
-    // Guard against a user requesting the owner category directly without permission
-    const initCat = initCatRaw === 'owner' && !viewerIsOwner ? 'overview' : initCatRaw;
-
-    const inDM = !interaction.guild;
-
-    const container = initCat === 'overview'
-      ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
-      : buildCategory(initCat, descMap, viewerIsOwner, inDM);
-
-    container.addActionRowComponents(buildSelectMenu(initCat, viewerIsOwner));
-    const msg = await interaction.editReply({ components: [container] });
-
-    // ── Collector: handle select menu interactions ──────────────────────────
-    const collector = (msg as {
-      createMessageComponentCollector: (opts: {
-        filter: (i: { user: { id: string }; customId: string }) => boolean;
-        time: number;
-      }) => {
-        on: (
-          event: string,
-          cb: (i: StringSelectMenuInteraction) => void
-        ) => void;
-      };
-    }).createMessageComponentCollector({
-      filter: (i) => i.user.id === interaction.user.id && i.customId === 'help_select',
-      time: 120_000,
+    const overview = () => buildOverview({
+      botName, avatarUrl, about: branding?.about, groups, total, inDM, viewerIsOwner,
     });
 
-    let currentCat = initCat;
-    collector.on('collect', async (i: StringSelectMenuInteraction) => {
-      const value = (i.values as string[])[0];
-      // Re-check ownership on every navigation — a stale owners list should
-      // never leave the owner category reachable after a permission change.
-      const safeValue = value === 'owner' && !viewerIsOwner ? 'overview' : value;
-      currentCat = safeValue;
-      const newContainer = safeValue === 'overview'
-        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
-        : buildCategory(safeValue, descMap, viewerIsOwner, inDM);
+    // ── /help command:<name> ────────────────────────────────────────────────
+    const wanted = (interaction.options.getString('command') ?? '').trim().toLowerCase();
+    if (wanted) {
+      const found = all.find((c) => c.name === wanted)
+        ?? all.find((c) => c.aliases.includes(wanted));
 
-      newContainer.addActionRowComponents(buildSelectMenu(safeValue, viewerIsOwner));
-      await i.update({
-        flags: MessageFlags.IsComponentsV2 as never,
-        components: [newContainer],
+      // Owner commands are not acknowledged to non-owners: confirming they
+      // exist is information the listing deliberately withholds.
+      if (!found || (found.ownerOnly && !viewerIsOwner)) {
+        const container = overview()
+          .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# No command called \`${wanted.slice(0, 40)}\`. Browse below, or try \`/help command:\` for suggestions.`,
+          ));
+        container.addActionRowComponents(...buildNav('overview', groups));
+        return interaction.editReply({ components: [container] });
+      }
+
+      const container = buildDetail(found, inDM);
+      container.addActionRowComponents(...buildNav('overview', groups));
+      container.addActionRowComponents(buildHomeRow());
+      return startCollector(container);
+    }
+
+    // ── Category resolution ─────────────────────────────────────────────────
+    const requested = (interaction.options.getString('category') ?? 'overview').trim().toLowerCase();
+
+    // The prefix router does not restrict a value to the slash choices, so
+    // `,help garbage` — and `,help Economy`, purely a capitalisation
+    // difference — used to reach `CATEGORIES[key].color` on undefined. That
+    // threw inside the deferred reply, leaving the message stuck on "thinking"
+    // with nothing logged.
+    const resolved = requested === 'overview'
+      ? 'overview'
+      : (groups.find((g) => g.key === requested)?.key
+        ?? groups.find((g) => meta(g.key).label.toLowerCase() === requested)?.key);
+
+    // A prefix invocation has no named options, so `,help balance` puts a COMMAND
+    // name into `category`. Falling back to the overview there would be a
+    // regression from what people actually type, so resolve it as a command.
+    if (!resolved && requested) {
+      const asCommand = all.find((c) => c.name === requested)
+        ?? all.find((c) => c.aliases.includes(requested));
+      if (asCommand && (!asCommand.ownerOnly || viewerIsOwner)) {
+        const detail = buildDetail(asCommand, inDM);
+        detail.addActionRowComponents(...buildNav('overview', groups));
+        detail.addActionRowComponents(buildHomeRow());
+        return startCollector(detail);
+      }
+    }
+
+    let current = resolved ?? 'overview';
+
+    const first = current === 'overview'
+      ? overview()
+      : buildCategory(current, groups.find((g) => g.key === current)!.commands, inDM);
+
+    if (!resolved) {
+      first.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+          `-# \`${requested.slice(0, 40)}\` isn't a category — showing the overview instead.`,
+        ));
+    }
+
+    first.addActionRowComponents(...buildNav(current, groups));
+    if (current !== 'overview') first.addActionRowComponents(buildHomeRow());
+    return startCollector(first);
+
+    // ── Navigation ──────────────────────────────────────────────────────────
+    async function startCollector(container: ContainerBuilder): Promise<unknown> {
+      const msg = await interaction.editReply({ components: [container] });
+
+      const collector = (msg as {
+        createMessageComponentCollector: (opts: {
+          filter: (i: { user: { id: string }; customId: string }) => boolean;
+          time: number;
+        }) => { on: (event: string, cb: (i: StringSelectMenuInteraction) => void) => void };
+      }).createMessageComponentCollector({
+        filter: (i) => i.user.id === interaction.user.id
+          && (i.customId === 'help_select' || i.customId === 'help_home'),
+        time: 180_000,
       });
-    });
 
-    collector.on('end', async () => {
-      // Disable the menu when the 2-minute window closes — keep whatever
-      // category the user last navigated to, not the original one.
-      const disabledContainer = currentCat === 'overview'
-        ? buildOverview(brandedName, avatarUrl, branding?.about, viewerIsOwner, inDM)
-        : buildCategory(currentCat, descMap, viewerIsOwner, inDM);
-      disabledContainer.addActionRowComponents(buildSelectMenu(currentCat, viewerIsOwner, true));
-      interaction.editReply({ components: [disabledContainer] }).catch(() => {});
-    });
+      const render = (key: string): ContainerBuilder => {
+        const group = groups.find((g) => g.key === key);
+        // Falls back rather than throwing: the menu is built from `groups`, but a
+        // reload between render and click could remove a category.
+        const c = key === 'overview' || !group
+          ? overview()
+          : buildCategory(key, group.commands, inDM);
+        c.addActionRowComponents(...buildNav(group ? key : 'overview', groups));
+        if (group && key !== 'overview') c.addActionRowComponents(buildHomeRow());
+        return c;
+      };
+
+      collector.on('collect', async (i: StringSelectMenuInteraction) => {
+        // Wrapped because an expired or already-acknowledged interaction would
+        // otherwise surface as an unhandled rejection and take the process
+        // handler with it.
+        try {
+          const next = i.customId === 'help_home' ? 'overview' : (i.values as string[])[0];
+          current = next;
+          await i.update({
+            flags: MessageFlags.IsComponentsV2 as never,
+            components: [render(next)],
+          });
+        } catch (err) {
+          logger.debug(`[help] navigation failed: ${(err as Error).message}`);
+        }
+      });
+
+      collector.on('end', () => {
+        // Leave the view the user was last on, with the controls greyed out.
+        const group = groups.find((g) => g.key === current);
+        const c = current === 'overview' || !group ? overview() : buildCategory(current, group.commands, inDM);
+        c.addActionRowComponents(...buildNav(current, groups, true));
+        if (group && current !== 'overview') c.addActionRowComponents(buildHomeRow(true));
+        interaction.editReply({ components: [c] }).catch(() => {});
+      });
+
+      return msg;
+    }
   },
 });
