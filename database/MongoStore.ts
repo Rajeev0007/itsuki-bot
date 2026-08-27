@@ -56,6 +56,7 @@ export interface Store {
   add(keyPath: string, amount: number): Promise<number>;
   tryAdd(keyPath: string, delta: number, bounds?: { min?: number; max?: number }): Promise<number | null>;
   addToSet(keyPath: string, value: unknown): Promise<boolean>;
+  removeFromSet(keyPath: string, value: unknown): Promise<boolean>;
   subtract(keyPath: string, amount: number): Promise<number>;
   all(): Promise<Array<[string, unknown]>>;
   filter(predicate: (entry: [string, unknown]) => boolean): Promise<Array<[string, unknown]>>;
@@ -410,6 +411,41 @@ export class MongoStore implements Store {
       const arr = (current as unknown[]) ?? [];
       if (arr.includes(value)) return false;
       await this.set(keyPath, [...arr, value]);
+      return true;
+    }
+  }
+
+  /**
+   * Removes one value from an array. Returns true when it was actually there.
+   *
+   * The `$pull` counterpart to addToSet. `pull()` below reads the array, filters
+   * it in JS and writes the whole thing back, which both loses a concurrent
+   * append and cannot report whether the value was present without a second
+   * read that is itself racy.
+   */
+  async removeFromSet(keyPath: string, value: unknown): Promise<boolean> {
+    const segments = splitKeyPath(keyPath);
+    if (!segments.length) throw new Error('[MongoStore] removeFromSet() needs a key path.');
+
+    const col = await this._col();
+    const [id, ...rest] = segments;
+    const field = rest.length ? `v.${rest.join('.')}` : 'v';
+
+    try {
+      const result = await col.updateOne(
+        { _id: id },
+        { $pull: { [field]: value } } as never,
+      );
+      return result.modifiedCount > 0;
+    } catch (err) {
+      const current = await this.get(keyPath);
+      if (current !== undefined && !Array.isArray(current)) {
+        throw new TypeError(`Value at "${keyPath}" is not an array.`);
+      }
+      if (!isPathConflict(err)) throw err;
+      const arr = (current as unknown[]) ?? [];
+      if (!arr.includes(value)) return false;
+      await this.set(keyPath, arr.filter((item) => item !== value));
       return true;
     }
   }
