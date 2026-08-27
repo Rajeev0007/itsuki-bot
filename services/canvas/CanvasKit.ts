@@ -62,6 +62,9 @@ const nativeCanvas = require('canvas') as {
 export const createCanvas = nativeCanvas.createCanvas;
 export const loadImage    = nativeCanvas.loadImage;
 
+/** Hard ceiling on a single canvas asset. Avatars and card art are far below this. */
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
 /** Downloads a URL to a Buffer, following redirects (CDNs use them heavily). */
 export function fetchBuffer(url: string, redirectsLeft = 3): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -80,8 +83,20 @@ export function fetchBuffer(url: string, redirectsLeft = 3): Promise<Buffer> {
         return reject(new Error(`HTTP ${status} for ${url}`));
       }
 
+      // Cap the body while streaming. Unbounded accumulation meant a hostile or
+      // broken CDN response was buffered into memory until the process died,
+      // and this is reached with third-party card art URLs.
       const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
+      let received = 0;
+      res.on('data', (c: Buffer) => {
+        received += c.length;
+        if (received > MAX_IMAGE_BYTES) {
+          res.destroy();
+          reject(new Error(`Image exceeds ${MAX_IMAGE_BYTES / 1024 / 1024} MB: ${url}`));
+          return;
+        }
+        chunks.push(c);
+      });
       res.on('end', () => resolve(Buffer.concat(chunks)));
       res.on('error', reject);
     });

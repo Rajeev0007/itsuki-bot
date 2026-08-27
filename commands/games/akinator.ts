@@ -16,6 +16,8 @@ import logger from '../../utils/Logger';
 
 /** Akinator normally solves in ~25 questions; cap so a game can't run forever. */
 const MAX_QUESTIONS = 80;
+/** Cap on "that's wrong, keep guessing" presses, so the loop cannot run forever. */
+const MAX_REJECTIONS = 10;
 const TURN_TIMEOUT_MS = 3 * 60_000;
 const WIN_REWARD = 400;
 
@@ -150,6 +152,7 @@ export default new Command({
 
     const gameId = `${interaction.user.id}${Date.now().toString(36)}`;
     let questionNo = 1;
+    let rejections = 0;
     let finished = false;
 
     /** Builds a turn with the controls that match it (answers vs guess). */
@@ -171,24 +174,42 @@ export default new Command({
     }).createMessageComponentCollector({
       // Only the player drives their own game.
       filter: (i) => i.customId.startsWith(`aki:${gameId}:`) && i.user.id === interaction.user.id,
-      time: 20 * 60_000,
+      // Must stay INSIDE the 15-minute interaction-token lifetime. At 20 minutes
+      // the 'end' handler's editReply was guaranteed to fail on the time path, so
+      // an expired game never visibly closed and kept its buttons enabled.
+      time: 14 * 60_000,
       // Reset on each answer, so a long game doesn't die mid-way.
       idle: TURN_TIMEOUT_MS,
     });
 
-    const push = async (i: ButtonInteraction, current: AkiTurn) => {
-      await i.update({ components: [withControls(current)] } as never);
+    // editReply, not i.update: the click is acknowledged with deferUpdate at the
+    // top of the collect handler (see below), which consumes the component
+    // interaction's one allowed response. Also .catch'd — an expired token must
+    // not become an unhandled rejection inside a collector listener.
+    const push = async (_i: ButtonInteraction, current: AkiTurn) => {
+      await interaction.editReply({ components: [withControls(current)] } as never).catch(() => {});
     };
 
-    const endWith = async (i: ButtonInteraction | null, container: ContainerBuilder) => {
+    const endWith = async (_i: ButtonInteraction | null, container: ContainerBuilder) => {
       finished = true;
       collector.stop('done');
-      if (i) await i.update({ components: [container] } as never).catch(() => {});
-      else await interaction.editReply({ components: [container] } as never).catch(() => {});
+      await interaction.editReply({ components: [container] } as never).catch(() => {});
     };
 
     collector.on('collect', async (i: ButtonInteraction) => {
       if (finished) return;
+
+      // Acknowledge IMMEDIATELY, before any slow work.
+      //
+      // Discord invalidates a component interaction token 3 seconds after it is
+      // received, and the branches below call AkinatorService (an HTTP client
+      // scraping akinator.com with a 12-second timeout) BEFORE responding. Any
+      // upstream response slower than 3 s made the reply fail with "10062 Unknown
+      // interaction" as an unhandled rejection: the message froze on the previous
+      // question while the session had already advanced, so every later answer was
+      // applied to the wrong step.
+      await i.deferUpdate().catch(() => {});
+
       const action = i.customId.split(':')[2] as AnswerId | 'stop' | 'correct' | 'wrong';
 
       // ── Give up ───────────────────────────────────────────────────────────
@@ -208,7 +229,7 @@ export default new Command({
         await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
         // Akinator winning is still a completed game for the player, and the
         // reward acknowledges the time spent.
-        await UserManager.addWallet(interaction.user.id, WIN_REWARD);
+        await UserManager.creditWallet(interaction.user.id, WIN_REWARD);
         await UserManager.recordTransaction(interaction.user.id, 'akinator', WIN_REWARD, 'Akinator game completed');
         const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([
           '# 🔮 Guessed it!',
@@ -222,6 +243,20 @@ export default new Command({
       // ── Reject the guess, or answer a question ────────────────────────────
       try {
         if (action === 'wrong') {
+          // Rejections are counted too. questionNo was only incremented on the
+          // answer branch while the hard stop below tested questionNo, so holding
+          // "Keep guessing" issued unlimited requests to akinator.com without ever
+          // advancing the counter.
+          rejections++;
+          if (rejections > MAX_REJECTIONS) {
+            await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
+            const c = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent([
+              '# 🔮 I give up!',
+              `That's ${MAX_REJECTIONS} rejected guesses — you win!`,
+            ].join('\n')));
+            await endWith(i, c);
+            return;
+          }
           turn = await AkinatorService.reject(session);
         } else {
           turn = await AkinatorService.answer(session, action);

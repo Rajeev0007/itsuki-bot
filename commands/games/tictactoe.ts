@@ -86,6 +86,8 @@ export default new Command({
     const p2 = { id: opponent.id, username: opponent.username };
     const board: string[] = new Array(9).fill('');
     let turn = p1.id;
+    /** Set once the game has been decided, so the 'end' handler doesn't re-render. */
+    let finished = false;
     const gameId = `${p1.id}${Date.now()}`;
 
     const msg = await interaction.editReply({
@@ -102,7 +104,10 @@ export default new Command({
 
     collector.on('collect', async (i: ButtonInteraction) => {
       if (i.user.id !== turn) {
-        await i.reply({ content: "It's not your turn.", flags: MessageFlags.Ephemeral });
+        // .catch: a rapid double-click can arrive after the interaction was
+        // already acknowledged, and an unhandled rejection inside a collector
+        // listener takes down the process handler rather than this game.
+        await i.reply({ content: "It's not your turn.", flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
       }
 
@@ -119,34 +124,42 @@ export default new Command({
       const isDraw  = !winner && board.every((c) => c);
 
       if (winner || isDraw) {
+        finished = true;
         (collector as unknown as { stop: () => void }).stop();
         const winnerId = winner ? (winner === X ? p1.id : p2.id) : null;
+
+        const status = winner
+          ? `**${winner === X ? p1.username : p2.username}** wins! (${winner})`
+          : "**It's a draw!**";
+        // Render before writing: the stat writes below share the interaction's
+        // 3-second acknowledgement budget, and overrunning it froze the finished
+        // board with all nine buttons still live.
+        await i.update({ components: [buildBoard(board, p1, p2, turn, status, gameId, true)] }).catch(() => {});
 
         // Neither player was credited with anything before — tic-tac-toe kept
         // no record of games played or won.
         await UserManager.incrementStat(p1.id, 'gamesPlayed');
         await UserManager.incrementStat(p2.id, 'gamesPlayed');
         if (winnerId) await UserManager.incrementStat(winnerId, 'gamesWon');
-
-        const status = winner
-          ? `**${winner === X ? p1.username : p2.username}** wins! (${winner})`
-          : "**It's a draw!**";
-        await i.update({ components: [buildBoard(board, p1, p2, turn, status, gameId, true)] });
         return;
       }
 
       turn = turn === p1.id ? p2.id : p1.id;
       const nextMark = turn === p1.id ? X : O;
       const nextName = turn === p1.id ? p1.username : p2.username;
-      await i.update({ components: [buildBoard(board, p1, p2, turn, `**${nextName}'s turn** (${nextMark})`, gameId)] });
+      await i.update({ components: [buildBoard(board, p1, p2, turn, `**${nextName}'s turn** (${nextMark})`, gameId)] }).catch(() => {});
     });
 
-    (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void }).on('end', (_c, reason) => {
-      if (reason === 'time') {
-        interaction.editReply({
-          components: [buildBoard(board, p1, p2, turn, '**Game expired** — took too long to finish.', gameId, true)],
-        }).catch(() => {});
-      }
+    (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void }).on('end', (_c, _reason) => {
+      // Clean up on EVERY end reason, not just 'time'. discord.js also ends
+      // collectors with 'idle', 'messageDelete', 'channelDelete', 'guildDelete'
+      // and any custom stop() reason — in all of those the nine cell buttons used
+      // to stay enabled forever, and a later click showed "interaction failed".
+      // `finished` covers the normal win/draw path, which has already rendered.
+      if (finished) return;
+      interaction.editReply({
+        components: [buildBoard(board, p1, p2, turn, '**Game expired** — took too long to finish.', gameId, true)],
+      }).catch(() => {});
     });
   },
 });

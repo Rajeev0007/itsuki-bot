@@ -55,23 +55,20 @@ export default new Event({
     const members = botChannel.members.filter((m) => !m.user.bot);
     const gs = music.getGuildSettings(guildId);
 
+    // Arming and cancelling both live in MusicManager now, so trackStart and
+    // queueEnd can no longer fight this handler over the same timer field.
     if (members.size === 0) {
-      if (!gs.alwaysOn && !session.leaveTimer) {
-        logger.info(`[Music] All users left in guild ${guildId} — auto-leave in ${musicConfig.autoLeaveMs / 1000}s.`);
-        session.leaveTimer = setTimeout(async () => {
-          const tc = session.textChannel;
-          await music.destroyPlayer(guildId).catch(() => {});
-          (tc as any).send(
-            music._simpleComponents('👋 Everyone left — disconnected from voice.')
-          ).catch(() => {});
-        }, musicConfig.autoLeaveMs);
-      }
+      music.scheduleLeave(guildId, 'Everyone left');
+    } else if (session.current || music.getPlayer(guildId)?.playing) {
+      // Playing to a populated channel: nothing should make the bot leave.
+      music.cancelLeave(guildId);
     } else {
-      if (session.leaveTimer) {
-        clearTimeout(session.leaveTimer);
-        session.leaveTimer = null;
-        logger.info(`[Music] User rejoined in guild ${guildId} — cancelled auto-leave.`);
-      }
+      // Humans present but nothing playing — the queue-finished idle timer should
+      // stand. Cancelling on ANY voice event (this branch used to) meant an
+      // unrelated member muting elsewhere in the guild wiped that timer, and
+      // nothing ever rescheduled it, so an idle bot stayed connected forever
+      // without 24/7 enabled. scheduleLeave is a no-op when one is already armed.
+      music.scheduleLeave(guildId, 'Nothing playing');
     }
   },
 });

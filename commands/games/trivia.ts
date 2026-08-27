@@ -55,6 +55,8 @@ export default new Command({
 
     const gameId = `${interaction.user.id}${Date.now()}`;
     const reward = REWARD[q.difficulty] ?? 50;
+    /** True once the player has picked an answer, so the 'end' handler stands down. */
+    let answered = false;
 
     const container = new ContainerBuilder()
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -76,25 +78,18 @@ export default new Command({
     });
 
     collector.on('collect', async (i: StringSelectMenuInteraction) => {
+      answered = true;
       const chosenIdx = Number(i.values[0]);
       const chosen = q.answers[chosenIdx];
       const correct = chosen === q.correctAnswer;
-
-      // Trivia recorded nothing at all — no games played, no games won, no
-      // transaction — so it never counted toward stats or achievements the way
-      // every other game does.
-      await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
-      if (correct) {
-        await UserManager.incrementStat(interaction.user.id, 'gamesWon');
-        await UserManager.addWallet(interaction.user.id, reward);
-        await UserManager.recordTransaction(interaction.user.id, 'trivia', reward, `Trivia — ${q.category}`);
-        await UserManager.checkAchievements(interaction.user.id);
-      }
 
       const status = correct
         ? `**Correct!** You earned ${fmt.coins(reward)}.`
         : `**Wrong.** The correct answer was **${q.correctAnswer}**.`;
 
+      // Answer the interaction BEFORE the four store writes below. They shared
+      // the 3-second component acknowledgement budget, so a slow store left the
+      // question frozen with its menu open even though the reward had been paid.
       await i.update({
         components: [
           new ContainerBuilder()
@@ -103,11 +98,25 @@ export default new Command({
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([q.question, '', status].join('\n')))
             .addActionRowComponents(buildMenu(gameId, q.answers, true)),
         ],
-      });
+      }).catch(() => {});
+
+      // Trivia recorded nothing at all — no games played, no games won, no
+      // transaction — so it never counted toward stats or achievements the way
+      // every other game does.
+      await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
+      if (correct) {
+        await UserManager.incrementStat(interaction.user.id, 'gamesWon');
+        await UserManager.creditWallet(interaction.user.id, reward);
+        await UserManager.recordTransaction(interaction.user.id, 'trivia', reward, `Trivia — ${q.category}`);
+        await UserManager.checkAchievements(interaction.user.id);
+      }
     });
 
-    (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void }).on('end', (_c, reason) => {
-      if (reason === 'time') {
+    (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void }).on('end', (_c, _reason) => {
+      // Every end reason, not just 'time' — 'idle', 'messageDelete',
+      // 'channelDelete' and 'guildDelete' all left the menu live. Gated on
+      // `answered` instead, which is the condition that actually matters.
+      if (!answered) {
         // An unanswered question still counts as a game played.
         void UserManager.incrementStat(interaction.user.id, 'gamesPlayed').catch(() => {});
         interaction.editReply({

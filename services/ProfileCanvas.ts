@@ -8,8 +8,7 @@ const { createCanvas, loadImage } = require('canvas') as {
   createCanvas: (w: number, h: number) => Canvas;
   loadImage: (src: Buffer | string) => Promise<CanvasImage>;
 };
-import https from 'https';
-import http from 'http';
+import { fetchBuffer } from './canvas/CanvasKit';
 import { drawText, preloadEmoji, collectStrings } from './canvas/EmojiText';
 
 interface Canvas {
@@ -53,20 +52,21 @@ const COLORS = {
   gold: '#ffd700', stat: '#e0e0ff',
 };
 
-function fetchBuffer(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    (client as typeof https).get(url, { timeout: 8000 } as Parameters<typeof https.get>[1], (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchBuffer(res.headers.location).then(resolve).catch(reject);
-      }
-      const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-}
+/*
+ * The local fetchBuffer that used to live here has been removed in favour of the
+ * shared one in ./canvas/CanvasKit, which this was an un-migrated copy of.
+ *
+ * The copy could HANG FOREVER: Node's `timeout` option only arms
+ * socket.setTimeout and emits 'timeout' — it does not abort the request — and no
+ * 'timeout' listener or req.destroy() was registered. On a stalled connection the
+ * promise never settled, so /profile never replied at all and the user just saw
+ * the interaction time out ("application did not respond"). A hang is not an
+ * exception, so the try/catch around the call could not save it.
+ *
+ * It also had no status check (a 404 HTML body was handed to loadImage), no
+ * redirect limit (two hosts pointing at each other recursed forever), no byte
+ * cap, and it leaked the socket on redirects by not draining the response.
+ */
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath();
@@ -131,7 +131,11 @@ export async function generateProfile(opts: ProfileOptions): Promise<Buffer> {
   const AX = 105, AY = H / 2, AR = 66;
   let avatarImg: CanvasImage | null = null;
   try {
-    const buf = await fetchBuffer(opts.avatarURL + '?size=256');
+    // No '?size=256' appended here: displayAvatarURL({ size }) already returns
+    // "…/avatar.png?size=256", so adding it again produced
+    // "?size=256?size=256" — a malformed query the CDN rejected, which is why
+    // every profile card silently fell back to the letter placeholder.
+    const buf = await fetchBuffer(opts.avatarURL);
     avatarImg = await loadImage(buf);
   } catch { avatarImg = null; }
 
