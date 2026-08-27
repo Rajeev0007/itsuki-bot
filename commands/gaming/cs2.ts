@@ -19,23 +19,59 @@ import logger from '../../utils/Logger';
  */
 const WEAPONS: Array<{
   name: string; category: string; price: number; damage: number;
-  armorPen: number; fireRate: number; kills: number; note?: string;
+  armorPen: number; fireRate: number; note?: string;
+  /**
+   * Removed field: `kills`.
+   *
+   * It was displayed as the kill reward through `$${w.kills ? 300 : 300}` — both
+   * branches were 300, so every weapon reported $300 regardless. The data was
+   * meaningless anyway (the SSG 08 was marked 0 while its own note says it
+   * one-shot headshots), so it is gone and the reward is derived below instead.
+   */
 }> = [
-  { name: 'AK-47',      category: 'Rifle',   price: 2700, damage: 36, armorPen: 77.5, fireRate: 600, kills: 1, note: 'One-shot headshot through helmet' },
-  { name: 'M4A4',       category: 'Rifle',   price: 3100, damage: 33, armorPen: 70,   fireRate: 666, kills: 1 },
-  { name: 'M4A1-S',     category: 'Rifle',   price: 2900, damage: 38, armorPen: 70,   fireRate: 600, kills: 1, note: 'Suppressed, tighter spray' },
-  { name: 'AWP',        category: 'Sniper',  price: 4750, damage: 115, armorPen: 97.5, fireRate: 41, kills: 1, note: 'One-shot kill to body' },
-  { name: 'Desert Eagle', category: 'Pistol', price: 700, damage: 63, armorPen: 93.2, fireRate: 267, kills: 1, note: 'One-shot headshot' },
-  { name: 'Glock-18',   category: 'Pistol',  price: 200,  damage: 30, armorPen: 47,   fireRate: 400, kills: 0 },
-  { name: 'USP-S',      category: 'Pistol',  price: 200,  damage: 35, armorPen: 50.4, fireRate: 352, kills: 1, note: 'Headshot kill unarmoured' },
-  { name: 'MP9',        category: 'SMG',     price: 1250, damage: 26, armorPen: 60,   fireRate: 857, kills: 0 },
-  { name: 'P90',        category: 'SMG',     price: 2350, damage: 26, armorPen: 69,   fireRate: 857, kills: 0 },
-  { name: 'Galil AR',   category: 'Rifle',   price: 1800, damage: 30, armorPen: 77.5, fireRate: 666, kills: 0 },
-  { name: 'FAMAS',      category: 'Rifle',   price: 2050, damage: 30, armorPen: 70,   fireRate: 666, kills: 0 },
-  { name: 'SSG 08',     category: 'Sniper',  price: 1700, damage: 88, armorPen: 85,   fireRate: 48,  kills: 0, note: 'Scout — one-shot headshot' },
-  { name: 'Nova',       category: 'Shotgun', price: 1050, damage: 26, armorPen: 50,   fireRate: 84,  kills: 0 },
-  { name: 'Negev',      category: 'LMG',     price: 1700, damage: 35, armorPen: 75,   fireRate: 800, kills: 0 },
+  { name: 'AK-47',      category: 'Rifle',   price: 2700, damage: 36, armorPen: 77.5, fireRate: 600, note: 'One-shot headshot through helmet' },
+  { name: 'M4A4',       category: 'Rifle',   price: 3100, damage: 33, armorPen: 70,   fireRate: 666 },
+  { name: 'M4A1-S',     category: 'Rifle',   price: 2900, damage: 38, armorPen: 70,   fireRate: 600, note: 'Suppressed, tighter spray' },
+  { name: 'AWP',        category: 'Sniper',  price: 4750, damage: 115, armorPen: 97.5, fireRate: 41, note: 'One-shot kill to body' },
+  { name: 'Desert Eagle', category: 'Pistol', price: 700, damage: 63, armorPen: 93.2, fireRate: 267, note: 'One-shot headshot' },
+  { name: 'Glock-18',   category: 'Pistol',  price: 200,  damage: 30, armorPen: 47,   fireRate: 400 },
+  { name: 'USP-S',      category: 'Pistol',  price: 200,  damage: 35, armorPen: 50.4, fireRate: 352, note: 'Headshot kill unarmoured' },
+  { name: 'MP9',        category: 'SMG',     price: 1250, damage: 26, armorPen: 60,   fireRate: 857 },
+  { name: 'P90',        category: 'SMG',     price: 2350, damage: 26, armorPen: 69,   fireRate: 857 },
+  { name: 'Galil AR',   category: 'Rifle',   price: 1800, damage: 30, armorPen: 77.5, fireRate: 666 },
+  { name: 'FAMAS',      category: 'Rifle',   price: 2050, damage: 30, armorPen: 70,   fireRate: 666 },
+  { name: 'SSG 08',     category: 'Sniper',  price: 1700, damage: 88, armorPen: 85,   fireRate: 48, note: 'Scout — one-shot headshot' },
+  { name: 'Nova',       category: 'Shotgun', price: 1050, damage: 26, armorPen: 50,   fireRate: 84 },
+  { name: 'Negev',      category: 'LMG',     price: 1700, damage: 35, armorPen: 75,   fireRate: 800 },
 ];
+
+/**
+ * Kill reward in dollars, by weapon class.
+ *
+ * CS2 pays by class, not per weapon, with two exceptions handled below. Deriving
+ * it means a new weapon added to the table above gets the right figure without a
+ * second value to keep in sync.
+ */
+const KILL_REWARD_BY_CLASS: Record<string, number> = {
+  Pistol: 300,
+  Rifle: 300,
+  Sniper: 300,
+  SMG: 600,
+  Shotgun: 900,
+  LMG: 300,
+};
+
+/** Weapons that do not pay their class rate. */
+const KILL_REWARD_OVERRIDES: Record<string, number> = {
+  // The AWP is deliberately punished for how strong it otherwise is.
+  AWP: 100,
+  // The P90 pays the rifle rate rather than the SMG rate.
+  P90: 300,
+};
+
+function killReward(weapon: { name: string; category: string }): number {
+  return KILL_REWARD_OVERRIDES[weapon.name] ?? KILL_REWARD_BY_CLASS[weapon.category] ?? 300;
+}
 
 const ACTIVE_DUTY = ['Ancient', 'Anubis', 'Dust II', 'Inferno', 'Mirage', 'Nuke', 'Train'];
 const OTHER_MAPS = ['Overpass', 'Vertigo', 'Cache', 'Office', 'Italy'];
@@ -145,7 +181,7 @@ export default new Command({
           `**Base damage:** ${w.damage}`,
           `**Armour penetration:** ${w.armorPen}%`,
           `**Fire rate:** ${w.fireRate} RPM`,
-          `**Kill reward:** $${w.kills ? 300 : 300}`,
+          `**Kill reward:** $${fmt.number(killReward(w))}`,
           w.note ? `\n> ${w.note}` : '',
         ].filter(Boolean).join('\n')));
       return interaction.editReply({ components: [c] });
@@ -227,7 +263,7 @@ export default new Command({
           const lm = stats.lastMatch;
           container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-              `**Last match** ${lm.won === null ? '' : lm.won ? '· 🟢 Won' : '· 🔴 Lost'}`,
+              `**Last match** · ${lm.result === 'won' ? '🟢 Won' : lm.result === 'lost' ? '🔴 Lost' : '⬜ Drawn'}`,
               `> **${lm.kills}** / **${lm.deaths}** (K/D ${lm.kd ?? '—'}) · **${lm.mvps}** MVPs`,
               `> Score **${lm.tWins + lm.ctWins}** – **${Math.max(0, lm.rounds - lm.tWins - lm.ctWins)}** over ${lm.rounds} rounds`,
               lm.damage > 0 ? `> **${fmt.number(lm.damage)}** damage · $${fmt.number(lm.moneySpent)} spent` : '',

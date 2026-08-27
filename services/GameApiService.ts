@@ -479,7 +479,9 @@ export interface Cs2MapStat {
 export interface Cs2LastMatch {
   kills: number; deaths: number; mvps: number; rounds: number;
   tWins: number; ctWins: number; moneySpent: number; damage: number;
-  won: boolean | null; kd: number | null;
+  /** Three-way: a level score is a draw, which a boolean could not express. */
+  result: 'won' | 'lost' | 'drawn';
+  kd: number | null;
 }
 
 export interface Cs2Stats {
@@ -489,7 +491,10 @@ export interface Cs2Stats {
   matchesPlayed: number; matchesWon: number; matchWinRate: number | null;
   bombsPlanted: number; bombsDefused: number; hostagesRescued: number;
   knifeKills: number; grenadeKills: number; molotovKills: number;
-  zoomedSniperKills: number; dominations: number; revenges: number;
+  zoomedSniperKills: number;
+  /** Kills using a weapon picked up from an enemy. */
+  enemyWeaponKills: number;
+  dominations: number; revenges: number;
   moneyEarned: number;
   /** Sorted by kills, highest first. */
   topWeapons: Cs2WeaponStat[];
@@ -663,9 +668,18 @@ export const Steam = {
           ctWins: lmCt,
           moneySpent: get('last_match_money_spent'),
           damage: get('last_match_damage'),
-          // The player's own wins are their side's; more than half the rounds
-          // means they took the match.
-          won: lmRounds > 0 ? (lmT + lmCt) > (lmRounds - (lmT + lmCt)) : null,
+          // Three-way, not boolean: an exactly even split is a DRAW, and
+          // `won > lost` reported that as a loss. The whole lastMatch object is
+          // already gated on lmRounds > 0, so the old `lmRounds > 0 ? … : null`
+          // ternary could never yield null and the "unknown" case downstream was
+          // unreachable.
+          result: ((): 'won' | 'lost' | 'drawn' => {
+            const mine = lmT + lmCt;
+            const theirs = lmRounds - mine;
+            if (mine > theirs) return 'won';
+            if (mine < theirs) return 'lost';
+            return 'drawn';
+          })(),
           kd: lmDeaths > 0 ? Math.round((lmKills / lmDeaths) * 100) / 100 : null,
         }
       : null;
@@ -689,7 +703,10 @@ export const Steam = {
       knifeKills: get('total_kills_knife'),
       grenadeKills: get('total_kills_hegrenade'),
       molotovKills: get('total_kills_molotov'),
-      zoomedSniperKills: get('total_kills_enemy_weapon'),
+      // total_kills_enemy_weapon is kills with a weapon PICKED UP from an enemy —
+      // an unrelated counter that was being reported as zoomed sniper kills.
+      zoomedSniperKills: get('total_kills_zoomed_sniperrifle'),
+      enemyWeaponKills: get('total_kills_enemy_weapon'),
       dominations: get('total_dominations'),
       revenges: get('total_revenges'),
       moneyEarned: get('total_money_earned'),

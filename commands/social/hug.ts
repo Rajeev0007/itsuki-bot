@@ -1,9 +1,12 @@
-import { createSocialCommand } from '../../utils/SocialCommandFactory';
+/**
+ * @file hug.ts
+ * @description The /hug roleplay command.
+ *
+ * Wording, counters and the GIF category all come from the shared registry, so
+ * this file carries no behaviour of its own.
+ */
 
-export default createSocialCommand({
-  action:    'hug',
-  emoji:     '🤗',
-  pastTense: 'hugged',
-  plural:    'hugs',
-  category:  'social',
-});
+import { createSocialCommand } from '../../utils/SocialCommandFactory';
+import { getAction } from '../../config/actions';
+
+export default createSocialCommand(getAction('hug')!);

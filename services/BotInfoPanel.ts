@@ -29,7 +29,6 @@ import {
 } from 'discord.js';
 import config from '../config/config';
 import fmt from '../utils/Formatter';
-import { EMOJI as E } from '../utils/Constants';
 import { getStore } from '../database/Store';
 import type { Command } from '../structures/Command';
 
@@ -37,12 +36,20 @@ const usersDB = getStore('users');
 
 /* ── Pages ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Sections, in menu order.
+ *
+ * No emoji anywhere in this panel — not in the headings, the menu, or the
+ * buttons. Figures are laid out as aligned monospace tables instead, which reads
+ * as a status report rather than a chat message and stays legible on mobile,
+ * where a row of emoji wraps badly.
+ */
 export const PAGES = [
-  { id: 'overview', label: 'Overview',   emoji: 'ℹ️', description: 'What the bot is and how it is doing' },
-  { id: 'system',   label: 'System',     emoji: '⚙️', description: 'Host, runtime and latency' },
-  { id: 'commands', label: 'Commands',   emoji: '📜', description: 'What is available, by category' },
-  { id: 'features', label: 'Features',   emoji: '✨', description: 'A tour of the major modules' },
-  { id: 'links',    label: 'Links',      emoji: '🔗', description: 'Invite, support and legal' },
+  { id: 'overview', label: 'Overview',    description: 'Identity, reach and current health' },
+  { id: 'system',   label: 'System',      description: 'Runtime, memory, uptime and database' },
+  { id: 'commands', label: 'Commands',    description: 'Available commands by category' },
+  { id: 'features', label: 'Features',    description: 'What each module provides' },
+  { id: 'links',    label: 'Links',       description: 'Invite, support and legal documents' },
 ] as const;
 
 export type InfoPage = typeof PAGES[number]['id'];
@@ -202,18 +209,18 @@ function inviteUrl(): string | null {
     + '&scope=bot%20applications.commands';
 }
 
-export interface ResolvedLink { label: string; url: string; emoji?: string }
+export interface ResolvedLink { label: string; url: string }
 
 export function resolveLinks(): ResolvedLink[] {
   const candidates: Array<ResolvedLink | null> = [
-    (() => { const u = inviteUrl(); return u ? { label: 'Add to Server', url: u, emoji: '➕' } : null; })(),
-    (() => { const u = validUrl(config.links.support); return u ? { label: 'Support', url: u, emoji: '💬' } : null; })(),
+    (() => { const u = inviteUrl(); return u ? { label: 'Add to Server', url: u } : null; })(),
+    (() => { const u = validUrl(config.links.support); return u ? { label: 'Support Server', url: u } : null; })(),
     (() => {
       const u = config.clientId ? `https://top.gg/bot/${config.clientId}/vote` : null;
-      return u ? { label: 'Vote', url: u, emoji: '⭐' } : null;
+      return u ? { label: 'Vote', url: u } : null;
     })(),
-    (() => { const u = validUrl(config.links.website); return u ? { label: 'Website', url: u, emoji: '🌐' } : null; })(),
-    (() => { const u = validUrl(config.links.github); return u ? { label: 'Source', url: u, emoji: '💻' } : null; })(),
+    (() => { const u = validUrl(config.links.website); return u ? { label: 'Website', url: u } : null; })(),
+    (() => { const u = validUrl(config.links.github); return u ? { label: 'Source Code', url: u } : null; })(),
   ];
   // Discord allows at most 5 buttons in one action row.
   return candidates.filter((l): l is ResolvedLink => l !== null).slice(0, 5);
@@ -221,102 +228,139 @@ export function resolveLinks(): ResolvedLink[] {
 
 /* ── Rendering ────────────────────────────────────────────────────────────── */
 
-function pageBody(page: InfoPage, s: InfoSnapshot): string[] {
-  const ping = s.wsPing === null ? 'connecting…' : `${s.wsPing}ms`;
-  const dbLine = s.registeredUsers === null
-    ? '> Status: **unavailable**'
-    : `> Profiles stored: **${fmt.number(s.registeredUsers)}**\n> Read latency: **${s.dbLatencyMs ?? '—'}ms**`;
+/**
+ * Renders label/value pairs as an aligned monospace block.
+ *
+ * Labels are left-aligned and values right-aligned to a common width, so figures
+ * line up into a column that can be read down. Discord's proportional font makes
+ * that impossible outside a code block, which is why this wraps one.
+ *
+ * The width is measured from the content rather than fixed, so a long value
+ * cannot silently push a row out of alignment.
+ */
+function table(rows: Array<[string, string]>): string {
+  if (!rows.length) return '';
+  const labelW = Math.max(...rows.map(([l]) => l.length));
+  const valueW = Math.max(...rows.map(([, v]) => v.length));
+  const body = rows
+    .map(([l, v]) => `${l.padEnd(labelW)}   ${v.padStart(valueW)}`)
+    .join('\n');
+  return `\`\`\`\n${body}\n\`\`\``;
+}
 
+/** A section heading. Bold rather than a markdown header, which is oversized here. */
+function heading(text: string): string {
+  return `**${text.toUpperCase()}**`;
+}
+
+function pageBody(page: InfoPage, s: InfoSnapshot): string[] {
   switch (page) {
     case 'overview':
       return [
-        `**${E.INFO} About**`,
-        `> A full economy, gambling, music and anime bot with ${s.commandTotal} public commands.`,
-        `> Version **${config.bot.version}** · discord.js **${s.discordVersion}**`,
-        '',
-        `**${E.CHART} Reach**`,
-        `> Servers: **${fmt.number(s.guilds)}**`,
-        `> Members: **${fmt.number(s.members)}**`,
-        `> Channels: **${fmt.number(s.channels)}**`,
-        '',
-        `**${E.LIGHTNING} Health**`,
-        `> Uptime: **${fmt.duration(s.clientUptimeMs)}**`,
-        `> Gateway: **${ping}**`,
+        heading('Identity'),
+        table([
+          ['Version', config.bot.version],
+          ['Library', `discord.js v${s.discordVersion}`],
+          ['Commands', `${fmt.number(s.commandTotal)} public`],
+          ['Bot ID', config.clientId || 'unknown'],
+        ]),
+        heading('Reach'),
+        table([
+          ['Servers', fmt.number(s.guilds)],
+          ['Members', fmt.number(s.members)],
+          ['Channels', fmt.number(s.channels)],
+        ]),
+        heading('Health'),
+        table([
+          ['Uptime', fmt.duration(s.clientUptimeMs)],
+          // "connecting" rather than "-1ms": ws.ping is -1 until the first
+          // heartbeat acknowledgement, which is a state, not a measurement.
+          ['Gateway latency', s.wsPing === null ? 'connecting' : `${s.wsPing} ms`],
+          ['Shards', String(s.shards)],
+        ]),
       ];
 
     case 'system':
       return [
-        `**${E.LIGHTNING} Runtime**`,
-        `> Node.js: **${s.nodeVersion}**`,
-        `> discord.js: **v${s.discordVersion}**`,
-        `> Platform: **${s.platform}**`,
-        `> Shards: **${s.shards}**`,
-        '',
-        `**${E.CHART} Memory**`,
-        `> Heap in use: **${s.heapMB.toFixed(1)} MB**`,
-        `> Resident set: **${s.rssMB.toFixed(1)} MB**`,
-        '',
-        `**${E.CLOCK} Uptime**`,
-        `> Gateway session: **${fmt.duration(s.clientUptimeMs)}**`,
-        `> Process: **${fmt.duration(s.processUptimeMs)}**`,
-        '',
-        `**${E.BANK} Database**`,
-        dbLine,
+        heading('Runtime'),
+        table([
+          ['Node.js', s.nodeVersion],
+          ['discord.js', `v${s.discordVersion}`],
+          ['Platform', s.platform],
+          ['Shards', String(s.shards)],
+        ]),
+        heading('Memory'),
+        table([
+          ['Heap in use', `${s.heapMB.toFixed(1)} MB`],
+          ['Resident set', `${s.rssMB.toFixed(1)} MB`],
+        ]),
+        heading('Uptime'),
+        table([
+          ['Gateway session', fmt.duration(s.clientUptimeMs)],
+          ['Process', fmt.duration(s.processUptimeMs)],
+        ]),
+        heading('Database'),
+        table(
+          s.registeredUsers === null
+            ? [['Status', 'unavailable']]
+            : [
+              ['Status', 'connected'],
+              ['Profiles stored', fmt.number(s.registeredUsers)],
+              ['Read latency', `${s.dbLatencyMs ?? 0} ms`],
+            ],
+        ),
       ];
 
     case 'commands': {
       if (!s.categories.length) {
-        return [`**${E.INFO} Commands**`, '> The command registry is still loading — try again in a moment.'];
+        return [
+          heading('Commands'),
+          'The command registry is still loading. Try again in a moment.',
+        ];
       }
-      const rows = s.categories.map(
-        (c) => `> \`${String(c.count).padStart(2, ' ')}\` — ${fmt.capitalize(c.name)}`,
-      );
       return [
-        `**📜 ${s.commandTotal} public commands, ${s.categories.length} categories**`,
-        ...rows,
-        '',
-        '-# Run `/help` to browse them with descriptions and usage.',
+        heading(`${s.commandTotal} public commands across ${s.categories.length} categories`),
+        table(s.categories.map((c) => [fmt.capitalize(c.name), String(c.count)] as [string, string])),
+        '-# Run `/help` for descriptions and usage of each command.',
       ];
     }
 
     case 'features':
       return [
-        `**${E.COINS} Economy**`,
-        '> Wallet and bank, daily and weekly streaks, work, crime, rob, prestige.',
-        '',
-        `**${E.SLOTS} Gambling**`,
-        '> Blackjack, roulette, slots, crash, mines, dice and coinflip — every stake escrowed before the round starts.',
-        '',
-        `**${E.ANIME} Anime & Cards**`,
-        '> Collect and upgrade character cards, duel them, and trade on the auction house.',
-        '',
-        '**🎵 Music**',
-        '> Queue, loop, shuffle, seek, autoplay and 24/7 mode.',
-        '',
-        `**${E.SHIELD} Moderation**`,
-        '> Ban, kick, timeout, purge, lock, slowmode, verification, welcomer and mod logs.',
-        '',
-        `**${E.RANK} Profiles**`,
-        '> Rendered profile cards with levels, prestige, ranking and badges.',
+        heading('Economy'),
+        'Wallet and bank accounts, daily and weekly streaks, work, crime, robbery and prestige.',
+        heading('Gambling'),
+        'Blackjack, roulette, slots, crash, mines, dice and coinflip. Every stake is taken before the round begins.',
+        heading('Anime and cards'),
+        'Collect and upgrade character cards, duel them, and trade on the auction house.',
+        heading('Music'),
+        'Queue management, loop modes, shuffle, seek, autoplay and 24/7 playback.',
+        heading('Moderation'),
+        'Ban, kick, timeout, purge, channel locking, slowmode, member verification, welcome messages and audit logging.',
+        heading('Profiles'),
+        'Rendered profile cards with levels, prestige, server ranking and badges.',
+        heading('Social'),
+        'Roleplay reactions with anime GIFs, plus per-action sent and received counters.',
       ];
 
     case 'links': {
-      const legal: string[] = [];
       const privacy = validUrl(config.links.privacy);
       const terms = validUrl(config.links.terms);
-      if (privacy) legal.push(`> [Privacy Policy](${privacy})`);
-      if (terms) legal.push(`> [Terms of Service](${terms})`);
-
       const links = resolveLinks();
-      return [
-        `**${E.INFO} Where to find us**`,
+
+      const out: string[] = [
+        heading('Where to find us'),
         links.length
-          ? '> Use the buttons below to add the bot, get support or vote.'
-          : '> No links are configured yet.',
-        ...(legal.length ? ['', '**📄 Legal**', ...legal] : []),
-        '',
-        `-# Bot ID \`${config.clientId || 'unknown'}\``,
+          ? 'Use the buttons below to add the bot, get support, or vote for it.'
+          : 'No links have been configured yet.',
       ];
+      if (privacy || terms) {
+        out.push(heading('Legal'));
+        if (privacy) out.push(`[Privacy Policy](${privacy})`);
+        if (terms) out.push(`[Terms of Service](${terms})`);
+      }
+      out.push(`-# Bot ID \`${config.clientId || 'unknown'}\``);
+      return out;
     }
 
     default:
@@ -340,7 +384,7 @@ export function buildPanel(opts: PanelOptions): { components: ContainerBuilder[]
   const container = new ContainerBuilder()
     .addTextDisplayComponents(new TextDisplayBuilder().setContent([
       `# ${config.bot.name}`,
-      `-# ${meta.emoji} ${meta.label} · v${config.bot.version}`,
+      `-# ${meta.label.toUpperCase()}  ·  v${config.bot.version}  ·  ${fmt.number(snapshot.guilds)} servers`,
     ].join('\n')))
     .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(pageBody(page, snapshot).join('\n')));
@@ -349,12 +393,11 @@ export function buildPanel(opts: PanelOptions): { components: ContainerBuilder[]
      instead of always reading "Select a section". */
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`binfo_select:${viewerId}`)
-    .setPlaceholder('Jump to a section…')
+    .setPlaceholder('Select a section')
     .setDisabled(disabled)
     .addOptions(...PAGES.map((p) => new StringSelectMenuOptionBuilder()
       .setLabel(p.label)
       .setDescription(p.description)
-      .setEmoji(p.emoji)
       .setValue(p.id)
       .setDefault(p.id === page)));
 
@@ -369,7 +412,6 @@ export function buildPanel(opts: PanelOptions): { components: ContainerBuilder[]
       new ButtonBuilder()
         .setCustomId(`binfo_refresh:${viewerId}:${page}`)
         .setLabel('Refresh')
-        .setEmoji(E.REFRESH)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(disabled),
     ),
@@ -381,14 +423,10 @@ export function buildPanel(opts: PanelOptions): { components: ContainerBuilder[]
   if (links.length) {
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        ...links.map((l) => {
-          const button = new ButtonBuilder()
-            .setLabel(l.label)
-            .setStyle(ButtonStyle.Link)
-            .setURL(l.url);
-          if (l.emoji) button.setEmoji(l.emoji);
-          return button;
-        }),
+        ...links.map((l) => new ButtonBuilder()
+          .setLabel(l.label)
+          .setStyle(ButtonStyle.Link)
+          .setURL(l.url)),
       ),
     );
   }

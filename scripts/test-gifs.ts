@@ -4,65 +4,94 @@
  *
  * Run:  npx tsx scripts/test-gifs.ts
  *
- * This hits the real nekos.best API through the same GifService the /hug,
- * /kiss, /bonk … commands use, so a pass here means the commands will render a
- * GIF. No Discord token or gateway connection needed.
+ * Hits the real nekos.best API through the same GifService the action commands
+ * use, so a pass here means the commands will render a GIF. No Discord token or
+ * gateway connection needed.
  *
- * It also reports which endpoint each action resolved through, which is how you
- * can tell whether `bonk` exists upstream or fell back to `punch`.
+ * It reports, per action, which CATEGORY the GIF actually came from — which is
+ * how you confirm an action is showing its own reaction rather than a declared
+ * substitute. Any row marked SUBSTITUTED is a category that does not exist
+ * upstream; any row marked MISSING will post without a GIF.
  */
 
 import GifService from '../services/GifService';
+import { ACTIONS } from '../config/actions';
 
-/** The ten roleplay commands, matching commands/social/*.ts */
-const ROLEPLAY_ACTIONS = [
-  'hug', 'kiss', 'pat', 'slap', 'cuddle',
-  'bonk', 'poke', 'wave', 'dance', 'cry',
-];
-
-interface Row { action: string; ok: boolean; url: string | null; ms: number }
+interface Row {
+  action: string;
+  declared: string;
+  got: string | null;
+  url: string | null;
+  substituted: boolean;
+  ms: number;
+}
 
 async function main(): Promise<void> {
-  console.log(`\nTesting ${ROLEPLAY_ACTIONS.length} roleplay actions against nekos.best…\n`);
+  console.log('\nLoading the nekos.best category catalogue…');
+  const categories = await GifService.categories();
+  console.log(`  ${categories.length} live categories.\n`);
 
+  // Every declared category is checked against the live catalogue first. This is
+  // the check that would have caught /bonk pointing at a category that does not
+  // exist, before any user ever saw the wrong GIF.
+  const missingCategories = ACTIONS
+    .filter((a) => !categories.includes(a.category))
+    .map((a) => `${a.name} -> ${a.category}${a.fallbacks?.length ? ` (falls back to ${a.fallbacks.join(', ')})` : ' (NO FALLBACK)'}`);
+
+  if (missingCategories.length) {
+    console.log('Actions whose category is not in the live catalogue:');
+    for (const line of missingCategories) console.log(`  ${line}`);
+    console.log('');
+  }
+
+  console.log(`Fetching a GIF for each of ${ACTIONS.length} actions…\n`);
   const rows: Row[] = [];
-  for (const action of ROLEPLAY_ACTIONS) {
+  for (const action of ACTIONS) {
     const started = Date.now();
+    let got: string | null = null;
     let url: string | null = null;
+    let substituted = false;
     try {
-      url = await GifService.getGif(action);
+      const result = await GifService.resolve(action.category, action.fallbacks ?? []);
+      url = result.url;
+      got = result.category;
+      substituted = result.substituted;
     } catch (err) {
-      console.error(`  ${action}: threw — ${(err as Error).message}`);
+      console.error(`  ${action.name}: threw — ${(err as Error).message}`);
     }
     const ms = Date.now() - started;
-    rows.push({ action, ok: Boolean(url), url, ms });
+    rows.push({ action: action.name, declared: action.category, got, url, substituted, ms });
 
-    const status = url ? 'OK  ' : 'FAIL';
-    console.log(`  [${status}] ${action.padEnd(8)} ${String(ms).padStart(5)}ms  ${url ?? '(no GIF returned)'}`);
+    const status = !url ? 'MISSING     ' : substituted ? 'SUBSTITUTED ' : 'OK          ';
+    console.log(
+      `  [${status}] ${action.name.padEnd(9)} category=${String(got ?? '-').padEnd(9)} ${String(ms).padStart(5)}ms  ${url ?? '(none)'}`,
+    );
   }
 
-  const passed = rows.filter((r) => r.ok).length;
-  const failed = rows.filter((r) => !r.ok);
+  const ok = rows.filter((r) => r.url && !r.substituted);
+  const subbed = rows.filter((r) => r.substituted);
+  const missing = rows.filter((r) => !r.url);
 
-  console.log(`\n${'-'.repeat(60)}`);
-  console.log(`${passed}/${rows.length} actions returned a GIF URL.`);
-
-  // A URL that isn't an image/gif would render as a broken embed in Discord.
-  const suspicious = rows.filter((r) => r.url && !/\.(gif|png|jpe?g|webp)(\?|$)/i.test(r.url));
-  if (suspicious.length) {
-    console.log(`\nWarning — these URLs don't look like images, so Discord may not render them:`);
-    for (const r of suspicious) console.log(`  ${r.action}: ${r.url}`);
+  console.log(`\n${'-'.repeat(72)}`);
+  console.log(`${ok.length}/${rows.length} actions returned a GIF from their OWN category.`);
+  if (subbed.length) {
+    console.log(`\n${subbed.length} used a declared substitute:`);
+    for (const r of subbed) console.log(`  ${r.action}: wanted "${r.declared}", used "${r.got}"`);
+    console.log('  These are intentional (declared in config/actions.ts) but the GIF is not');
+    console.log('  literally the action. Remove the action or find a better category to fix.');
   }
-
-  if (failed.length) {
-    console.log(`\nFailed: ${failed.map((r) => r.action).join(', ')}`);
-    console.log('Those commands will still post, just without a GIF.');
-    console.log('Check the log lines above: a 404 means the endpoint does not exist');
-    console.log('upstream (add a fallback in ACTION_ENDPOINTS in services/GifService.ts);');
-    console.log('anything else usually means a network or rate-limit problem.');
+  if (missing.length) {
+    console.log(`\n${missing.length} returned nothing and will post without a GIF:`);
+    for (const r of missing) console.log(`  ${r.action} (category "${r.declared}")`);
     process.exitCode = 1;
-  } else {
-    console.log('\nAll roleplay commands will render a GIF.');
+  }
+
+  // Pool state proves the batching is working: after one call per action each
+  // category should hold the rest of its batch, so repeat use costs no requests.
+  const state = GifService._state();
+  console.log(`\nPooled batches: ${state.pooled.length} categories holding ${state.pooled.reduce((n, p) => n + p.remaining, 0)} ready GIFs.`);
+  if (state.cooldowns.length) {
+    console.log(`Cooling down: ${state.cooldowns.map((c) => `${c.category} (${Math.ceil(c.msLeft / 1000)}s)`).join(', ')}`);
   }
   console.log('');
 }

@@ -39,6 +39,21 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * The oldest day key included in an N-day window, inclusive of today.
+ *
+ * The subtraction is `days - 1`, not `days`. Buckets are compared with
+ * `day >= cutoff`, so `now - days` includes today PLUS the previous N days —
+ * N+1 buckets. That made "Last 7 days" quietly sum 8 days of activity, and it
+ * disagreed with getSeries, which walks `days - 1 … 0` and is correct.
+ *
+ * Shared so the window can only be defined once.
+ */
+function windowCutoff(days: number): string {
+  const span = Math.max(1, Math.floor(days));
+  return new Date(Date.now() - (span - 1) * 86_400_000).toISOString().slice(0, 10);
+}
+
 function emptyStats(): UserStats {
   return { messages: 0, voiceSeconds: 0, commands: 0, firstSeen: Date.now(), lastSeen: Date.now(), daily: {} };
 }
@@ -190,7 +205,7 @@ const StatsManager = {
   /** Totals over the last N days from the daily buckets. */
   async getRecent(guildId: string, userId: string, days: number): Promise<{ messages: number; voiceSeconds: number }> {
     const stats = await this.getStats(guildId, userId);
-    const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000).toISOString().slice(0, 10);
+    const cutoff = windowCutoff(days);
     // `?? {}` here would widen the union and make the entry values `unknown`;
     // getStats always returns a populated `daily` object, so use it directly.
     const daily: UserStats['daily'] = stats.daily;
@@ -233,13 +248,17 @@ const StatsManager = {
     const guildStats = await statsDB.get(`${guildId}`) as Record<string, UserStats> | undefined;
     if (!guildStats || typeof guildStats !== 'object') return [];
 
-    const cutoff = days ? new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10) : null;
+    const cutoff = days ? windowCutoff(days) : null;
 
     return Object.entries(guildStats)
       .filter(([, s]) => s && typeof s === 'object')
       .map(([userId, s]) => {
         if (!cutoff) return { userId, value: Number(s[metric]) || 0 };
-        if (metric === 'commands') return { userId, value: Number(s.commands) || 0 };
+        // `commands` has no daily buckets, so a windowed request for it can only
+        // be answered with the all-time total. Returning that silently would
+        // present a lifetime figure as a 7-day one, so it is reported as 0 —
+        // absent, rather than wrong.
+        if (metric === 'commands') return { userId, value: 0 };
         let value = 0;
         for (const [day, bucket] of Object.entries(s.daily ?? {})) {
           if (day < cutoff) continue;

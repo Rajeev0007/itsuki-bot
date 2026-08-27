@@ -1,9 +1,12 @@
-import { createSocialCommand } from '../../utils/SocialCommandFactory';
+/**
+ * @file poke.ts
+ * @description The /poke roleplay command.
+ *
+ * Wording, counters and the GIF category all come from the shared registry, so
+ * this file carries no behaviour of its own.
+ */
 
-export default createSocialCommand({
-  action:    'poke',
-  emoji:     '👉',
-  pastTense: 'poked',
-  plural:    'pokes',
-  category:  'social',
-});
+import { createSocialCommand } from '../../utils/SocialCommandFactory';
+import { getAction } from '../../config/actions';
+
+export default createSocialCommand(getAction('poke')!);

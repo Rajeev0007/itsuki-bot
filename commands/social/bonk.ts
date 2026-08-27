@@ -1,9 +1,12 @@
-import { createSocialCommand } from '../../utils/SocialCommandFactory';
+/**
+ * @file bonk.ts
+ * @description The /bonk roleplay command.
+ *
+ * Wording, counters and the GIF category all come from the shared registry, so
+ * this file carries no behaviour of its own.
+ */
 
-export default createSocialCommand({
-  action:    'bonk',
-  emoji:     '🔨',
-  pastTense: 'bonked',
-  plural:    'bonks',
-  category:  'social',
-});
+import { createSocialCommand } from '../../utils/SocialCommandFactory';
+import { getAction } from '../../config/actions';
+
+export default createSocialCommand(getAction('bonk')!);

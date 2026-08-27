@@ -42,16 +42,64 @@ export interface JikanAnime {
   aired?: { string?: string; from?: string }; year?: number;
 }
 
+/**
+ * Why searchAnime reports failures instead of returning [].
+ *
+ * Jikan rate limits at roughly 3 requests/second and 60/minute, and answers with
+ * 429. Collapsing that into an empty array made the command tell the user their
+ * correctly-spelled title "does not exist" — the one explanation that is
+ * definitely wrong. A miss and an outage need to be distinguishable.
+ */
+export class AnimeServiceError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'rate_limited' | 'upstream' | 'network',
+    readonly retryAfterMs: number | null = null,
+  ) {
+    super(message);
+    this.name = 'AnimeServiceError';
+  }
+}
+
+/** Classifies an axios failure into something a command can act on. */
+function classify(err: unknown): AnimeServiceError {
+  const response = (err as { response?: { status?: number; headers?: Record<string, unknown> } }).response;
+  const status = response?.status;
+
+  if (status === 429) {
+    // Jikan sends Retry-After in seconds when it throttles.
+    const header = response?.headers?.['retry-after'];
+    const seconds = Number(Array.isArray(header) ? header[0] : header);
+    return new AnimeServiceError(
+      'The anime database is rate limiting us. Try again in a moment.',
+      'rate_limited',
+      Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 2000,
+    );
+  }
+  if (typeof status === 'number' && status >= 500) {
+    return new AnimeServiceError('The anime database is having problems. Try again shortly.', 'upstream');
+  }
+  return new AnimeServiceError(`Could not reach the anime database: ${(err as Error).message}`, 'network');
+}
+
 const AnimeService = {
+  /**
+   * Searches for anime.
+   *
+   * Returns [] ONLY for a genuine no-results answer. Anything else throws an
+   * AnimeServiceError so the caller can say what actually went wrong.
+   */
   async searchAnime(query: string): Promise<JikanAnime[]> {
     try {
       const res = await http.get<{ data: JikanAnime[] }>(`${JIKAN_BASE}/anime`, {
         params: { q: query, limit: 5, sfw: true }, timeout: 8000,
       });
+      // A 200 with no data is a real "not found".
       return res.data?.data ?? [];
     } catch (err) {
-      logger.warn(`[AnimeService] searchAnime failed: ${(err as Error).message}`);
-      return [];
+      const error = classify(err);
+      logger.warn(`[AnimeService] searchAnime(${query}) failed: ${error.kind} — ${(err as Error).message}`);
+      throw error;
     }
   },
 

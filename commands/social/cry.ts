@@ -1,10 +1,12 @@
-import { createSocialCommand } from '../../utils/SocialCommandFactory';
+/**
+ * @file cry.ts
+ * @description The /cry roleplay command.
+ *
+ * Wording, counters and the GIF category all come from the shared registry, so
+ * this file carries no behaviour of its own.
+ */
 
-export default createSocialCommand({
-  action:    'cry',
-  emoji:     '😢',
-  pastTense: 'cried with',
-  plural:    'cries',
-  soloText:  'is crying',
-  category:  'social',
-});
+import { createSocialCommand } from '../../utils/SocialCommandFactory';
+import { getAction } from '../../config/actions';
+
+export default createSocialCommand(getAction('cry')!);

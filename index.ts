@@ -17,6 +17,7 @@ import NoPrefixManager    from './managers/NoPrefixManager';
 import BlacklistManager   from './managers/BlacklistManager';
 import MaintenanceManager from './managers/MaintenanceManager';
 import StatsManager       from './managers/StatsManager';
+import GifService         from './services/GifService';
 import VoteWebhookServer  from './services/VoteWebhookServer';
 import CommandHandler     from './handlers/CommandHandler';
 import EventHandler       from './handlers/EventHandler';
@@ -58,6 +59,9 @@ const interactionHandler = new InteractionHandler(client);
 client.once('ready', () => {
   try { musicManager.init(client); }
   catch (err) { logger.error('[Startup] Failed to initialise music manager:', (err as Error).message); }
+  // Fetch the reaction-GIF category catalogue now so the first /hug does not pay
+  // for it. Failure is non-fatal — GifService falls back to its built-in list.
+  void GifService.warm().catch(() => {});
 });
 
 const commandHandler = new CommandHandler(client);
