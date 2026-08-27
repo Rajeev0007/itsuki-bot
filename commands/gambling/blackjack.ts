@@ -186,12 +186,16 @@ export default new Command({
       }
 
       if (action === 'bj_double') {
-        const { wallet: w } = await UserManager.getBalance(gs.userId);
-        if (w < gs.bet) {
+        // The debit itself decides affordability, atomically. Checking the
+        // balance first and debiting after left a window in which the second
+        // stake could be drained by a concurrent command: the clamped debit took
+        // nothing, but gs.bet still doubled and endGame paid out 4x the original
+        // bet. Note the disabled Double button is only a client-side hint — this
+        // handler is reachable regardless.
+        if (!await UserManager.debitWallet(gs.userId, gs.bet)) {
           await i.reply({ ...CB.errorResponse('Insufficient Funds', 'Not enough to double down.'), flags: MessageFlags.Ephemeral });
           return;
         }
-        await UserManager.addWallet(gs.userId, -gs.bet);
         gs.bet *= 2;
         gs.player.push(gs.deck.pop()!);
         if (handValue(gs.player) > 21) await endGame((p) => i.update(p), gs.player, gs.dealer, 'bust');

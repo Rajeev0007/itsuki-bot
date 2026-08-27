@@ -192,7 +192,16 @@ const config = {
     feedCost: 50,
     trainCost: 100,
     feedCooldown: 3_600_000,
+    // /pet play was reusing feedCooldown because no play cooldown existed.
+    playCooldown: 3_600_000,
     trainCooldown: 7_200_000,
+    /**
+     * Partial rebate on a training session. Deliberately EV-NEGATIVE against
+     * trainCost (mean 75 vs a cost of 100): training buys pet XP, it is not an
+     * income source. The previous hardcoded 50-200 range meant +25 expected
+     * profit per session, making /pet train a risk-free coin faucet.
+     */
+    trainReward: { min: 25, max: 125 },
   },
 
   /* Shop */

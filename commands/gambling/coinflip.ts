@@ -36,6 +36,14 @@ export default new Command({
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `You only have ${fmt.coins(wallet)}.`) } as never);
 
+    // Escrow the stake before the flip animation — netting it off afterwards let
+    // a concurrent /deposit make the loss free while a win still paid out.
+    if (!await UserManager.debitWallet(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the coin was flipped — nothing was wagered.',
+      ) } as never);
+    }
+
     for (const f of FRAMES) {
       await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${f}`))] });
       await sleep(500);
@@ -44,7 +52,8 @@ export default new Command({
     const result = Math.random() < 0.5 ? 'heads' : 'tails';
     const won = result === choice;
     const net = won ? bet : -bet;
-    await UserManager.addWallet(interaction.user.id, net);
+    // Stake already escrowed: a win returns it plus the same again.
+    if (won) await UserManager.creditWallet(interaction.user.id, bet * 2);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
     await UserManager.recordTransaction(

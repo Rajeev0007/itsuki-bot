@@ -60,6 +60,16 @@ export default new Command({
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
+    // Take the stake BEFORE the animation. Settling only the net difference
+    // afterwards left the coins spendable for the ~2 s the wheel was spinning, so
+    // draining the wallet with a concurrent command made a loss free while a
+    // number bet still paid 36x — a risk-free 36x, repeatable.
+    if (!await UserManager.debitWallet(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the wheel spun — nothing was wagered.',
+      ) } as never);
+    }
+
     for (const f of FRAMES) {
       const passing = Array.from({ length: 5 }, () => fmt.randomInt(0, 36)).join(' ');
       await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Roulette\n${f}\n> \`${passing}\``))] });
@@ -73,7 +83,8 @@ export default new Command({
     const payout = Math.floor(bet * mult);
     const net = payout - bet;
     const won = payout > 0;
-    await UserManager.addWallet(interaction.user.id, net);
+    // The stake is already escrowed, so credit the gross payout.
+    if (payout > 0) await UserManager.creditWallet(interaction.user.id, payout);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
     await UserManager.recordTransaction(

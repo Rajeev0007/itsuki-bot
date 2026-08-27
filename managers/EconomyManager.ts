@@ -176,34 +176,68 @@ const EconomyManager = {
     await economyDB.set(`${attackerId}.lastRob`, now);
 
     if (Math.random() < config.economy.robChance) {
-      const pct    = fmt.randomInt(Math.floor(config.economy.robPercent.min * 100), Math.floor(config.economy.robPercent.max * 100)) / 100;
-      const stolen = Math.floor(targetEco.wallet * pct);
+      const pct = fmt.randomInt(Math.floor(config.economy.robPercent.min * 100), Math.floor(config.economy.robPercent.max * 100)) / 100;
+      // Re-read the victim's wallet immediately before taking from it. The
+      // percentage used to be applied to the snapshot taken at the top of this
+      // function, so if the victim banked their coins (or another attacker got
+      // there first) the debit clamped to what was left while the attacker was
+      // still credited the full stale figure — minting the difference.
+      const victimWallet = (await UserManager.getBalance(targetId)).wallet;
+      const stolen = Math.floor(victimWallet * pct);
       if (stolen <= 0) return { success: false as const, reason: 'too_poor' as const };
-      await UserManager.addWallet(targetId,   -stolen);
-      await UserManager.addWallet(attackerId,  stolen);
-      await UserManager.recordTransaction(attackerId, 'rob',   stolen,  `Robbed <@${targetId}>`);
+
+      // Only pay out what was actually taken.
+      if (!await UserManager.debitWallet(targetId, stolen)) {
+        return { success: false as const, reason: 'too_poor' as const };
+      }
+      const gained = await UserManager.creditWallet(attackerId, stolen);
+      await UserManager.recordTransaction(attackerId, 'rob',   gained,  `Robbed <@${targetId}>`);
       await UserManager.recordTransaction(targetId,   'robbed', -stolen, `Robbed by <@${attackerId}>`);
       await UserManager.incrementStat(attackerId, 'robSuccess');
-      return { success: true as const, stolen };
+      return { success: true as const, stolen: gained };
     } else {
-      const fine       = fmt.randomInt(config.economy.robFine.min, config.economy.robFine.max);
-      const actualFine = Math.min(fine, attackerEco.wallet);
-      await UserManager.addWallet(attackerId, -actualFine);
+      const fine = fmt.randomInt(config.economy.robFine.min, config.economy.robFine.max);
+      // Take as much of the fine as the attacker can actually cover, decided by
+      // the wallet at THIS moment rather than the earlier snapshot.
+      const wallet     = (await UserManager.getBalance(attackerId)).wallet;
+      const actualFine = Math.min(fine, wallet);
+      if (actualFine > 0) await UserManager.debitWallet(attackerId, actualFine);
       await UserManager.recordTransaction(attackerId, 'fine', -actualFine, 'Failed rob attempt');
       return { success: false as const, reason: 'caught' as const, fine: actualFine };
     }
   },
 
+  /**
+   * Moves coins wallet → bank.
+   *
+   * The balance read below is only for the friendly error messages and the
+   * bank-capacity check; the MOVE itself is guarded by the atomic debit. That
+   * ordering matters: with the old check-then-act, running /deposit all
+   * concurrently with /transfer all made both pass validation on the same
+   * starting wallet, and the clamped second debit created coins out of nothing.
+   */
   async deposit(userId: string, amount: number) {
     const { wallet, bank } = await UserManager.getBalance(userId);
     if (amount <= 0)             return { success: false as const, reason: 'invalid_amount' as const };
     if (amount > wallet)         return { success: false as const, reason: 'insufficient_funds' as const };
     if (bank + amount > config.economy.bankLimit)
       return { success: false as const, reason: 'bank_full' as const, maxDeposit: config.economy.bankLimit - bank };
-    await UserManager.addWallet(userId, -amount);
-    await UserManager.addBank(userId,   amount);
-    await UserManager.recordTransaction(userId, 'deposit', amount, 'Deposited to bank');
-    return { success: true as const, amount };
+
+    // Take first, and only credit what was genuinely taken.
+    if (!await UserManager.debitWallet(userId, amount)) {
+      return { success: false as const, reason: 'insufficient_funds' as const };
+    }
+    const landed = await UserManager.creditBank(userId, amount);
+    if (landed < amount) {
+      // The bank filled up in the meantime. Give back the remainder rather than
+      // burning it.
+      await UserManager.creditWallet(userId, amount - landed);
+      if (landed === 0) {
+        return { success: false as const, reason: 'bank_full' as const, maxDeposit: 0 };
+      }
+    }
+    await UserManager.recordTransaction(userId, 'deposit', landed, 'Deposited to bank');
+    return { success: true as const, amount: landed };
   },
 
   async withdraw(userId: string, amount: number) {
@@ -211,10 +245,18 @@ const EconomyManager = {
     if (amount <= 0)                             return { success: false as const, reason: 'invalid_amount' as const };
     if (amount > bank)                           return { success: false as const, reason: 'insufficient_bank' as const };
     if (wallet + amount > config.economy.maxWallet) return { success: false as const, reason: 'wallet_full' as const };
-    await UserManager.addBank(userId,   -amount);
-    await UserManager.addWallet(userId,  amount);
-    await UserManager.recordTransaction(userId, 'withdraw', amount, 'Withdrew from bank');
-    return { success: true as const, amount };
+
+    if (!await UserManager.debitBank(userId, amount)) {
+      return { success: false as const, reason: 'insufficient_bank' as const };
+    }
+    const landed = await UserManager.creditWallet(userId, amount);
+    if (landed < amount) {
+      // Wallet cap reached mid-flight — return the overflow to the bank.
+      await UserManager.creditBank(userId, amount - landed);
+      if (landed === 0) return { success: false as const, reason: 'wallet_full' as const };
+    }
+    await UserManager.recordTransaction(userId, 'withdraw', landed, 'Withdrew from bank');
+    return { success: true as const, amount: landed };
   },
 
   async transfer(senderId: string, receiverId: string, amount: number) {
@@ -234,11 +276,24 @@ const EconomyManager = {
       return { success: false as const, reason: 'receiver_wallet_full' as const, capacity: Math.max(0, capacity) };
     }
 
-    await UserManager.addWallet(senderId,   -sendAmount);
-    await UserManager.addWallet(receiverId,  sendAmount);
-    await UserManager.recordTransaction(senderId,   'transfer_out', -sendAmount, `Sent to <@${receiverId}>`);
-    await UserManager.recordTransaction(receiverId, 'transfer_in',  sendAmount,  `Received from <@${senderId}>`);
-    return { success: true as const, amount: sendAmount };
+    // Debit the sender FIRST and abort if it fails. Previously the receiver was
+    // credited unconditionally, so a sender whose wallet had been drained since
+    // the read above paid nothing while the receiver still got the full amount —
+    // a two-client money printer.
+    if (!await UserManager.debitWallet(senderId, sendAmount)) {
+      return { success: false as const, reason: 'insufficient_funds' as const };
+    }
+    const landed = await UserManager.creditWallet(receiverId, sendAmount);
+    if (landed < sendAmount) {
+      // Refund whatever would not fit instead of destroying it.
+      await UserManager.creditWallet(senderId, sendAmount - landed);
+      if (landed === 0) {
+        return { success: false as const, reason: 'receiver_wallet_full' as const, capacity: 0 };
+      }
+    }
+    await UserManager.recordTransaction(senderId,   'transfer_out', -landed, `Sent to <@${receiverId}>`);
+    await UserManager.recordTransaction(receiverId, 'transfer_in',  landed,  `Received from <@${senderId}>`);
+    return { success: true as const, amount: landed };
   },
 };
 

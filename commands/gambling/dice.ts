@@ -31,6 +31,14 @@ export default new Command({
       return interaction.editReply({ ...CB.errorResponse('Invalid Bet', `Bet between ${fmt.coins(config.gambling.minBet)} and ${fmt.coins(config.gambling.maxBet)}.`) } as never);
     if (bet > wallet) return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
+    // Escrow the stake before the roll animation — see roulette/coinflip for the
+    // exploit that netting it off afterwards allowed.
+    if (!await UserManager.debitWallet(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the dice were rolled — nothing was wagered.',
+      ) } as never);
+    }
+
     for (let i = 0; i < 3; i++) {
       await interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Rolling the dice…\n**You:** ${DICE_FACES[Math.floor(Math.random()*6)]} · **House:** ${DICE_FACES[Math.floor(Math.random()*6)]}`) )] });
       await sleep(400);
@@ -41,7 +49,9 @@ export default new Command({
     const won = pRoll > hRoll;
     const tie = pRoll === hRoll;
     const net = tie ? 0 : won ? bet : -bet;
-    await UserManager.addWallet(interaction.user.id, net);
+    // Stake already escrowed: a tie returns it, a win returns it doubled.
+    if (tie)      await UserManager.creditWallet(interaction.user.id, bet);
+    else if (won) await UserManager.creditWallet(interaction.user.id, bet * 2);
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     if (won) await UserManager.incrementStat(interaction.user.id, 'gamesWon');
     // Dice never recorded anything in the transaction history, unlike every

@@ -59,7 +59,11 @@ export default new Command({
     const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
     let currentMult = 1.0;
 
-    await UserManager.addWallet(interaction.user.id, -bet);
+    if (!await UserManager.debitWallet(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the round started — nothing was wagered.',
+      ) } as never);
+    }
 
     const buildC = (mult: number, status: string) => new ContainerBuilder()
       .addSectionComponents(new SectionBuilder().addTextDisplayComponents(

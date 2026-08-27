@@ -86,14 +86,24 @@ export default new Command({
     const winnerId = iWon ? interaction.user.id : opponent.id;
     const winnerName = iWon ? interaction.user.username : opponent.username;
 
-    const reward = fmt.randomInt(config.cards.battleReward.min, config.cards.battleReward.max);
-    await UserManager.addWallet(winnerId, reward);
-    await UserManager.recordTransaction(winnerId, 'card_battle', reward, 'Card battle victory');
+    // The winner is only PAID if their own reward cooldown is clear. The payout
+    // used to be unconditional while the cooldown was set on the initiator only,
+    // so two users could alternate who ran the command and collect roughly double
+    // the intended rate — and an uninvolved opponent could be farmed as a payout
+    // mule. Battles themselves stay unlimited; only the coins are rate-limited.
+    const rewardBlocked = CooldownManager.check(winnerId, 'battle_reward').onCooldown;
+    const reward = rewardBlocked
+      ? 0
+      : fmt.randomInt(config.cards.battleReward.min, config.cards.battleReward.max);
+    if (reward > 0) {
+      await UserManager.creditWallet(winnerId, reward);
+      await UserManager.recordTransaction(winnerId, 'card_battle', reward, 'Card battle victory');
+      CooldownManager.set(winnerId, 'battle_reward', config.cards.battleCooldown);
+    }
 
     await UserManager.incrementStat(interaction.user.id, 'gamesPlayed');
     await UserManager.incrementStat(opponent.id, 'gamesPlayed');
     await UserManager.incrementStat(winnerId, 'gamesWon');
-    CooldownManager.set(interaction.user.id, 'battle_reward', config.cards.battleCooldown);
 
     // Condense the fight to a readable highlight reel.
     const log = rounds.slice(0, 6).map((r, i) => {
@@ -116,7 +126,9 @@ export default new Command({
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `## 🏆 ${winnerName} wins!`,
-        `Earned **${fmt.coins(reward)}**.`,
+        rewardBlocked
+          ? `-# No coins this time — ${iWon ? 'your' : `${winnerName}'s`} battle reward is still on cooldown.`
+          : `Earned **${fmt.coins(reward)}**.`,
         `-# ${rounds.length} exchanges · higher ATK strikes first`,
       ].join('\n')));
 

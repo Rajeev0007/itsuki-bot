@@ -45,10 +45,23 @@ export default new Command({
     if (!mines || mines < 1 || mines > TOTAL - 1)
       return interaction.editReply({ ...CB.errorResponse('Invalid Mines', `Pick between 1 and ${TOTAL - 1} mines.`) } as never);
 
-    await UserManager.addWallet(interaction.user.id, -bet);
+    if (!await UserManager.debitWallet(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the game started — nothing was wagered.',
+      ) } as never);
+    }
 
+    // Fisher-Yates. `sort(() => Math.random() - 0.5)` is an inconsistent
+    // comparator: V8's sort leaves elements near their original index, so low
+    // tile numbers were far likelier to be mines than high ones. The multiplier
+    // table above is the fair-odds inverse of UNIFORM placement, so a player who
+    // simply avoided the top-left tiles beat the advertised house edge.
     const pos = Array.from({ length: TOTAL }, (_, i) => i);
-    const mineSet = new Set(pos.sort(() => Math.random() - 0.5).slice(0, mines));
+    for (let i = pos.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pos[i], pos[j]] = [pos[j], pos[i]];
+    }
+    const mineSet = new Set(pos.slice(0, mines));
     const revealed = new Set<number>();
     /** Total safe tiles — clearing them all is a win. */
     const gemCount = TOTAL - mines;

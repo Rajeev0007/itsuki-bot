@@ -27,7 +27,9 @@ export default new Command({
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ size: 256 }))))
       .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-        '**What you lose:**', `> Level ${user.level} → Level 1`, `> Wallet reset to ${fmt.coins(config.economy.startingBalance)}`,
+        '**What you lose:**', `> Level ${user.level} → Level 1`,
+        `> Wallet reset to ${fmt.coins(config.economy.startingBalance)}`,
+        `> Bank reset to ${fmt.coins(config.economy.startingBank)}`,
         '', '**What you gain:**', `> Prestige ${next} badge`, `> +${bonusPct}% permanent earnings bonus`,
       ].join('\n')));
     container.addActionRowComponents(

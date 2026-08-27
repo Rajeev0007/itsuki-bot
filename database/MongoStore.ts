@@ -51,8 +51,11 @@ export interface Store {
   has(keyPath: string): Promise<boolean>;
   ensure(keyPath: string, defaultValue: unknown): Promise<unknown>;
   push(keyPath: string, ...items: unknown[]): Promise<void>;
+  pushCapped(keyPath: string, item: unknown, keep: number): Promise<void>;
   pull(keyPath: string, filterFn: unknown): Promise<void>;
   add(keyPath: string, amount: number): Promise<number>;
+  tryAdd(keyPath: string, delta: number, bounds?: { min?: number; max?: number }): Promise<number | null>;
+  addToSet(keyPath: string, value: unknown): Promise<boolean>;
   subtract(keyPath: string, amount: number): Promise<number>;
   all(): Promise<Array<[string, unknown]>>;
   filter(predicate: (entry: [string, unknown]) => boolean): Promise<Array<[string, unknown]>>;
@@ -288,6 +291,130 @@ export class MongoStore implements Store {
   }
 
   /**
+   * Prepends one item to an array and trims it to the newest `keep` entries,
+   * in a single atomic update.
+   *
+   * The read-modify-write this replaces (get → unshift → splice → set) lost an
+   * entry whenever two commands overlapped, which mattered because the array it
+   * maintains is the economy audit trail.
+   */
+  async pushCapped(keyPath: string, item: unknown, keep: number): Promise<void> {
+    const segments = splitKeyPath(keyPath);
+    if (!segments.length) throw new Error('[MongoStore] pushCapped() needs a key path.');
+    if (!Number.isInteger(keep) || keep <= 0) {
+      throw new TypeError(`[MongoStore] pushCapped() needs a positive keep count, got ${keep}.`);
+    }
+
+    const col = await this._col();
+    const [id, ...rest] = segments;
+    const field = rest.length ? `v.${rest.join('.')}` : 'v';
+
+    try {
+      await col.updateOne(
+        { _id: id },
+        // $position: 0 prepends (newest first), $slice: keep then keeps only the
+        // leading `keep` entries. Both modifiers apply within the one $push.
+        { $push: { [field]: { $each: [item], $position: 0, $slice: keep } } } as never,
+        { upsert: true },
+      );
+    } catch (err) {
+      const current = await this.get(keyPath);
+      if (current !== undefined && !Array.isArray(current)) {
+        throw new TypeError(`Value at "${keyPath}" is not an array.`);
+      }
+      if (!isPathConflict(err)) throw err;
+      await this.set(keyPath, [item, ...((current as unknown[]) ?? [])].slice(0, keep));
+    }
+  }
+
+  /**
+   * Atomically applies `delta` only if the result stays inside `bounds`.
+   * Returns the new value, or `null` when the guard rejected it.
+   *
+   * The guard lives in the QUERY, not in JS, so Mongo evaluates it against the
+   * same document version it increments. That is the whole point: `add()` is
+   * atomic but unconditional, so a debit built as "read balance → validate in
+   * JS → add(-amount)" could still be applied twice from the same starting
+   * balance by two concurrent commands. Here a losing racer matches no document
+   * and writes nothing, so the caller can tell the difference.
+   *
+   * Deliberately does NOT upsert: a missing document must fail the guard rather
+   * than be created with a negative balance. Callers ensure the field first.
+   */
+  async tryAdd(
+    keyPath: string,
+    delta: number,
+    bounds: { min?: number; max?: number } = {},
+  ): Promise<number | null> {
+    const segments = splitKeyPath(keyPath);
+    if (!segments.length) throw new Error('[MongoStore] tryAdd() needs a key path.');
+    if (!Number.isFinite(delta)) {
+      throw new TypeError(`[MongoStore] tryAdd() needs a finite delta, got ${delta}.`);
+    }
+
+    const col = await this._col();
+    const [id, ...rest] = segments;
+    const field = rest.length ? `v.${rest.join('.')}` : 'v';
+
+    const range: Record<string, number> = {};
+    // Rearranged so the comparison is against the CURRENT value: for a debit,
+    // "result >= min" is "current >= min - delta".
+    if (bounds.min !== undefined) range.$gte = bounds.min - delta;
+    if (bounds.max !== undefined) range.$lte = bounds.max - delta;
+
+    const filter: Record<string, unknown> = { _id: id };
+    if (Object.keys(range).length) filter[field] = range;
+
+    const result = await col.findOneAndUpdate(
+      filter as never,
+      { $inc: { [field]: delta } } as never,
+      { returnDocument: 'after' },
+    );
+
+    const doc = unwrap(result);
+    if (!doc) return null; // guard did not match — nothing was written
+    const value = rest.length ? walk(doc.v, rest) : doc.v;
+    return typeof value === 'number' ? value : null;
+  }
+
+  /**
+   * Adds a value to an array only if absent. Returns true when it was actually
+   * added, false when it was already there.
+   *
+   * `$addToSet` plus the driver's `modifiedCount` is what makes a "grant this
+   * once" check safe: the previous get → includes → push → set could grant the
+   * same achievement (and its coin reward) twice from two concurrent commands.
+   */
+  async addToSet(keyPath: string, value: unknown): Promise<boolean> {
+    const segments = splitKeyPath(keyPath);
+    if (!segments.length) throw new Error('[MongoStore] addToSet() needs a key path.');
+
+    const col = await this._col();
+    const [id, ...rest] = segments;
+    const field = rest.length ? `v.${rest.join('.')}` : 'v';
+
+    try {
+      const result = await col.updateOne(
+        { _id: id },
+        { $addToSet: { [field]: value } } as never,
+        { upsert: true },
+      );
+      // upsertedCount covers the case where the document did not exist yet.
+      return result.modifiedCount > 0 || result.upsertedCount > 0;
+    } catch (err) {
+      const current = await this.get(keyPath);
+      if (current !== undefined && !Array.isArray(current)) {
+        throw new TypeError(`Value at "${keyPath}" is not an array.`);
+      }
+      if (!isPathConflict(err)) throw err;
+      const arr = (current as unknown[]) ?? [];
+      if (arr.includes(value)) return false;
+      await this.set(keyPath, [...arr, value]);
+      return true;
+    }
+  }
+
+  /**
    * Removes matching items from an array.
    *
    * NOTE: this intentionally differs from the old JSON implementation, which was
@@ -400,10 +527,17 @@ function isPathConflict(err: unknown): boolean {
   return /cannot create field|not a document|path.*conflict|traverse.*element/i.test(message);
 }
 
-/** "Cannot apply $inc to a value of non-numeric type". */
+/**
+ * "Cannot apply $inc to a value of non-numeric type".
+ *
+ * Matched narrowly on purpose. A bare `/\$inc/` also matched unrelated errors
+ * that merely mention the operator (write conflicts, permission failures), which
+ * sent them down the non-atomic read+set fallback and reintroduced the lost
+ * update `add()` exists to prevent.
+ */
 function isNonNumeric(err: unknown): boolean {
   const message = (err as Error)?.message ?? '';
-  return /non-numeric|\$inc/i.test(message);
+  return /non-numeric type|cannot apply \$inc/i.test(message);
 }
 
 export default MongoStore;
