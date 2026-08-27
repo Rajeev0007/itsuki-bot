@@ -95,18 +95,16 @@ export default new Command({
         time: 60_000, max: 1,
       });
 
+      let botGameDone = false;
+
       collector.on('collect', async (i: ButtonInteraction) => {
+        botGameDone = true;
         const playerChoice = i.customId.split(':')[2] as Choice;
         const botChoice = CHOICES[Math.floor(Math.random() * CHOICES.length)];
         const result = resolve(playerChoice, botChoice);
         const status = result === 'draw'
           ? "**It's a draw!**"
           : result === 'p1' ? `**${p1Name} wins!**` : '**The bot wins!**';
-
-        // rps previously recorded nothing at all, so it never contributed to
-        // stats, the leaderboard or achievements.
-        await UserManager.incrementStat(p1Id, 'gamesPlayed');
-        if (result === 'p1') await UserManager.incrementStat(p1Id, 'gamesWon');
 
         await i.update({
           components: [
@@ -121,8 +119,35 @@ export default new Command({
               ].join('\n')))
               .addActionRowComponents(buildChoiceRow(gameId, true)),
           ],
-        });
+        }).catch(() => {});
+
+        // rps previously recorded nothing at all, so it never contributed to
+        // stats, the leaderboard or achievements. Written after the update so a
+        // slow store cannot cost the player their acknowledgement.
+        await UserManager.incrementStat(p1Id, 'gamesPlayed');
+        if (result === 'p1') await UserManager.incrementStat(p1Id, 'gamesWon');
       });
+
+      // The vs-bot branch had NO 'end' handler — the one further down belongs to
+      // the vs-user collector and is never reached from here. An abandoned game
+      // therefore left three ENABLED buttons on the message forever, and clicking
+      // one matched no collector and no global handler, so Discord showed "This
+      // interaction failed" indefinitely.
+      (collector as unknown as { on: (e: 'end', cb: (_: unknown, reason: string) => void) => void })
+        .on('end', (_c, _reason) => {
+          if (botGameDone) return;
+          interaction.editReply({
+            components: [
+              new ContainerBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('# 🪨📄✂️ Rock Paper Scissors'))
+                .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                  "**Timed out.** You didn't pick in time — run `/rps` to play again.",
+                ))
+                .addActionRowComponents(buildChoiceRow(gameId, true)),
+            ],
+          }).catch(() => {});
+        });
       return;
     }
 

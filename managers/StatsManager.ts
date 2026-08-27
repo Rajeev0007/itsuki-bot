@@ -52,6 +52,8 @@ const voiceSince = new Map<string, number>();
 
 // ReturnType<> avoids depending on the NodeJS namespace (@types/node).
 let flushTimer: ReturnType<typeof setInterval> | null = null;
+/** The flush currently running, if any — see flush() for why this is needed. */
+let inFlightFlush: Promise<void> | null = null;
 
 function bump(guildId: string, userId: string, field: keyof Pending, amount: number): void {
   if (!guildId || !userId || amount <= 0) return;
@@ -103,9 +105,28 @@ const StatsManager = {
     return seconds;
   },
 
-  /** Writes buffered counters to disk. */
+  /**
+   * Writes buffered counters to disk.
+   *
+   * Serialised against itself: each user's record is a read-modify-write, so two
+   * overlapping flushes both read the same base and the later `set` discarded the
+   * earlier one's increments. That was easy to trigger — `/userstats` calls
+   * getRank twice inside a Promise.all, and each call forces a flush, on top of
+   * the 30-second interval.
+   */
   async flush(): Promise<void> {
+    // Join the in-flight flush rather than starting a competing one. The awaiting
+    // caller still gets "my counters are persisted" because the buffer swap below
+    // happens before any await, so anything buffered when they called is included
+    // in the run they are now waiting on.
+    if (inFlightFlush) return inFlightFlush;
     if (!buffer.size) return;
+
+    inFlightFlush = this._flushNow().finally(() => { inFlightFlush = null; });
+    return inFlightFlush;
+  },
+
+  async _flushNow(): Promise<void> {
     // Swap the buffer out first so counts recorded during the await aren't lost.
     const pending = new Map(buffer);
     buffer.clear();

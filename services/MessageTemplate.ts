@@ -696,7 +696,21 @@ export function measureTemplate(tpl: MessageTemplate): {
 
 export function renderTemplate(tpl: MessageTemplate, ctx: PlaceholderContext): Record<string, unknown> {
   const safe: MessageTemplate = { ...emptyTemplate(tpl.style ?? 'embed'), ...tpl };
-  return safe.style === 'v2' ? renderV2(safe, ctx) : renderEmbed(safe, ctx);
+  const payload = safe.style === 'v2' ? renderV2(safe, ctx) : renderEmbed(safe, ctx);
+
+  /**
+   * Templates are user-authored text sent by the BOT, so mention parsing has to
+   * be pinned here rather than inherited from the client-wide default
+   * (`parse: ['users', 'roles']`).
+   *
+   * `users` stays enabled because a welcome message greeting the member who just
+   * joined is the whole point. `roles` is dropped: it let anyone who can edit a
+   * template make the bot deliver a real ping for any role — including roles they
+   * have no permission to mention and roles marked unmentionable. Placeholders
+   * such as {user.display} interpolate raw member-controlled text, so the content
+   * itself cannot be trusted either.
+   */
+  return { ...payload, allowedMentions: { parse: ['users'] } };
 }
 
 /**

@@ -182,8 +182,9 @@ const UserManager = {
     const base = Math.max(0, Math.floor(Number(baseAmount) || 0));
     if (base === 0) return 0;
     const total = Math.floor(base * (await this.earningsMultiplier(userId)));
-    await this.addWallet(userId, total);
-    return total;
+    // Report what actually landed, not what was intended — the wallet cap can
+    // shorten it, and the UI was previously free to claim the full figure.
+    return this.creditWallet(userId, total);
   },
 
   async getBalance(userId: string): Promise<{ wallet: number; bank: number }> {
@@ -192,25 +193,92 @@ const UserManager = {
   },
 
   /**
-   * Adds to (or subtracts from) the wallet, clamped to `[0, maxWallet]`.
+   * Makes sure the wallet/bank fields exist before an atomic guard runs against
+   * them. A conditional `$inc` cannot match a missing field, so a legacy record
+   * saved before these fields existed would fail every debit; `getEconomy` only
+   * merges defaults for reading and never persists them.
+   */
+  async _ensureEconomyFields(userId: string): Promise<void> {
+    await economyDB.ensure(`${userId}`, defaultEconomy(userId));
+    // 0, not startingBalance: a record that exists but lost its wallet field
+    // must not be topped up with free coins.
+    await economyDB.ensure(`${userId}.wallet`, 0);
+    await economyDB.ensure(`${userId}.bank`, 0);
+  },
+
+  /**
+   * Credits the wallet, capped at `maxWallet`. Returns the amount that landed,
+   * which is less than requested only when the cap was hit.
    *
-   * The clamp is the important part: nothing previously stopped a wallet going
-   * negative, and `maxWallet` was only ever enforced inside /withdraw.
-   * totalEarned/totalSpent are updated from the delta that actually landed, so
-   * a clamped transaction no longer inflates lifetime totals.
+   * Use this for income and winnings. Never pass a negative amount — use
+   * `debitWallet`, which can fail.
+   */
+  async creditWallet(userId: string, amount: number): Promise<number> {
+    const delta = Math.floor(Number(amount) || 0);
+    if (delta <= 0) return 0;
+    await this._ensureEconomyFields(userId);
+
+    const max = config.economy.maxWallet;
+    let applied = delta;
+    // Fast path: the whole credit fits under the cap.
+    if (await economyDB.tryAdd(`${userId}.wallet`, delta, { max }) === null) {
+      const current = Number(await economyDB.get(`${userId}.wallet`, 0)) || 0;
+      if (current + delta <= max) {
+        // The guard rejected it for some reason OTHER than the cap (a missing or
+        // non-numeric field). Checking this explicitly matters: clamping to `max`
+        // here unconditionally would GRANT maxWallet to a record whose wallet
+        // field was absent.
+        await economyDB.add(`${userId}.wallet`, delta);
+      } else {
+        // Genuinely at the ceiling — top up to exactly maxWallet. This write can
+        // only ever land ON the cap, so a race cannot push a wallet above it.
+        applied = Math.max(0, max - current);
+        if (applied === 0) return 0;
+        await economyDB.set(`${userId}.wallet`, max);
+      }
+    }
+
+    await economyDB.add(`${userId}.totalEarned`, applied);
+    await this._updateNetWorth(userId);
+    return applied;
+  },
+
+  /**
+   * Debits the wallet atomically, all-or-nothing. Returns false when the balance
+   * could not cover it — in which case NOTHING was written.
+   *
+   * This is the primitive the economy exploits came from. The old `addWallet`
+   * silently CLAMPED an oversized debit to whatever was in the wallet, so any
+   * "read balance → validate → debit" sequence could be raced: drain the wallet
+   * during the window and the debit cost nothing while the payout still landed
+   * in full. Callers MUST check the return value.
+   */
+  async debitWallet(userId: string, amount: number): Promise<boolean> {
+    const cost = Math.floor(Number(amount) || 0);
+    if (cost <= 0) return true; // nothing to take
+    await this._ensureEconomyFields(userId);
+
+    const next = await economyDB.tryAdd(`${userId}.wallet`, -cost, { min: 0 });
+    if (next === null) return false; // insufficient funds — no write happened
+
+    await economyDB.add(`${userId}.totalSpent`, cost);
+    await this._updateNetWorth(userId);
+    return true;
+  },
+
+  /**
+   * Back-compat wrapper. Returns the delta that actually landed, NOT the new
+   * balance, so an ignored return can no longer hide a failed debit.
+   *
+   * Prefer `creditWallet`/`debitWallet` directly — they make the failure mode
+   * explicit. This exists for payout sites where the amount is already known to
+   * be affordable.
    */
   async addWallet(userId: string, amount: number): Promise<number> {
     const delta = Math.floor(Number(amount) || 0);
-    await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    const current = Number(await economyDB.get(`${userId}.wallet`, 0)) || 0;
-    const next = Math.max(0, Math.min(current + delta, config.economy.maxWallet));
-    const applied = next - current;
-
-    await economyDB.set(`${userId}.wallet`, next);
-    if (applied > 0)      await economyDB.add(`${userId}.totalEarned`, applied);
-    else if (applied < 0) await economyDB.add(`${userId}.totalSpent`, -applied);
-    await this._updateNetWorth(userId);
-    return next;
+    if (delta === 0) return 0;
+    if (delta > 0) return this.creditWallet(userId, delta);
+    return (await this.debitWallet(userId, -delta)) ? delta : 0;
   },
 
   async setWallet(userId: string, amount: number): Promise<void> {
@@ -220,15 +288,49 @@ const UserManager = {
     await this._updateNetWorth(userId);
   },
 
-  /** Adds to (or subtracts from) the bank, clamped to `[0, bankLimit]`. */
+  /**
+   * Credits the bank, capped at `bankLimit`. Returns the amount that landed.
+   */
+  async creditBank(userId: string, amount: number): Promise<number> {
+    const delta = Math.floor(Number(amount) || 0);
+    if (delta <= 0) return 0;
+    await this._ensureEconomyFields(userId);
+
+    const max = config.economy.bankLimit;
+    let applied = delta;
+    if (await economyDB.tryAdd(`${userId}.bank`, delta, { max }) === null) {
+      const current = Number(await economyDB.get(`${userId}.bank`, 0)) || 0;
+      if (current + delta <= max) {
+        // Rejected for a reason other than the cap — see creditWallet.
+        await economyDB.add(`${userId}.bank`, delta);
+      } else {
+        applied = Math.max(0, max - current);
+        if (applied === 0) return 0;
+        await economyDB.set(`${userId}.bank`, max);
+      }
+    }
+    await this._updateNetWorth(userId);
+    return applied;
+  },
+
+  /** Debits the bank atomically, all-or-nothing. False means nothing was written. */
+  async debitBank(userId: string, amount: number): Promise<boolean> {
+    const cost = Math.floor(Number(amount) || 0);
+    if (cost <= 0) return true;
+    await this._ensureEconomyFields(userId);
+
+    const next = await economyDB.tryAdd(`${userId}.bank`, -cost, { min: 0 });
+    if (next === null) return false;
+    await this._updateNetWorth(userId);
+    return true;
+  },
+
+  /** Back-compat wrapper. Returns the delta that actually landed. */
   async addBank(userId: string, amount: number): Promise<number> {
     const delta = Math.floor(Number(amount) || 0);
-    await economyDB.ensure(`${userId}`, defaultEconomy(userId));
-    const current = Number(await economyDB.get(`${userId}.bank`, 0)) || 0;
-    const next = Math.max(0, Math.min(current + delta, config.economy.bankLimit));
-    await economyDB.set(`${userId}.bank`, next);
-    await this._updateNetWorth(userId);
-    return next;
+    if (delta === 0) return 0;
+    if (delta > 0) return this.creditBank(userId, delta);
+    return (await this.debitBank(userId, -delta)) ? delta : 0;
   },
 
   async setBank(userId: string, amount: number): Promise<void> {
@@ -247,10 +349,10 @@ const UserManager = {
   async recordTransaction(userId: string, type: string, amount: number, description: string): Promise<void> {
     await economyDB.ensure(`${userId}`, defaultEconomy(userId));
     const tx = { type, amount, description, timestamp: Date.now() };
-    const txs = (await economyDB.get(`${userId}.transactions`) ?? []) as typeof tx[];
-    txs.unshift(tx);
-    if (txs.length > 20) txs.splice(20);
-    await economyDB.set(`${userId}.transactions`, txs);
+    // One atomic prepend-and-trim. The previous get → unshift → splice → set
+    // dropped an entry whenever two commands overlapped, which is exactly the
+    // ledger you would use to investigate a balance dispute.
+    await economyDB.pushCapped(`${userId}.transactions`, tx, 20);
   },
 
   async incrementStat(userId: string, statKey: string, by = 1): Promise<number> {
@@ -260,12 +362,16 @@ const UserManager = {
 
   async grantAchievement(userId: string, achievementId: string): Promise<boolean> {
     await usersDB.ensure(`${userId}`, defaultUser(userId, 'global'));
-    const existing = (await usersDB.get(`${userId}.achievements`) ?? []) as string[];
-    if (existing.includes(achievementId)) return false;
-    existing.push(achievementId);
-    await usersDB.set(`${userId}.achievements`, existing);
+    // $addToSet decides the winner server-side. The previous read → includes →
+    // push → set let two concurrent commands both pass the "already has it?"
+    // check and both pay the reward — up to 10,000 coins duplicated for
+    // level_100. checkAchievements fires nine of these in a row, so overlapping
+    // commands hit it easily.
+    const added = await usersDB.addToSet(`${userId}.achievements`, achievementId);
+    if (!added) return false;
+
     const ach = Object.values(config.achievements).find((a) => a.id === achievementId);
-    if (ach?.reward) await this.addWallet(userId, ach.reward);
+    if (ach?.reward) await this.creditWallet(userId, ach.reward);
     logger.info(`Achievement unlocked: ${achievementId} → ${userId}`);
     return true;
   },
@@ -295,6 +401,10 @@ const UserManager = {
     await usersDB.set(`${userId}.level`, 1);
     await usersDB.set(`${userId}.xp`, 0);
     await this.setWallet(userId, config.economy.startingBalance);
+    // The bank was left untouched, which made it a prestige-proof vault: deposit
+    // everything, prestige, withdraw it all back, and keep a permanent +earnings
+    // bonus at no cost. The confirmation UI only ever mentioned the wallet.
+    await this.setBank(userId, config.economy.startingBank);
     await this.grantAchievement(userId, 'first_prestige');
     return newPrestige;
   },

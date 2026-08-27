@@ -192,7 +192,16 @@ const config = {
     feedCost: 50,
     trainCost: 100,
     feedCooldown: 3_600_000,
+    // /pet play was reusing feedCooldown because no play cooldown existed.
+    playCooldown: 3_600_000,
     trainCooldown: 7_200_000,
+    /**
+     * Partial rebate on a training session. Deliberately EV-NEGATIVE against
+     * trainCost (mean 75 vs a cost of 100): training buys pet XP, it is not an
+     * income source. The previous hardcoded 50-200 range meant +25 expected
+     * profit per session, making /pet train a risk-free coin faucet.
+     */
+    trainReward: { min: 25, max: 125 },
   },
 
   /* Shop */
@@ -252,6 +261,35 @@ const config = {
   logging: {
     level: 'info',
     logFile: 'logs/bot.log',
+  },
+
+  /**
+   * Public links shown on /stats and anywhere else the bot points people
+   * somewhere.
+   *
+   * All optional. Anything left blank is simply not rendered — a Discord link
+   * button with an empty or malformed URL is rejected by the API and takes the
+   * whole message with it, so these are validated before use rather than
+   * defaulted to a placeholder.
+   */
+  links: {
+    /**
+     * Invite URL.
+     *
+     * Prefer setting this to the install link from the Developer Portal
+     * (Installation → Install Link), because that is where the permission set
+     * lives. Leaving it blank falls back to a scope-only invite that carries NO
+     * `permissions` parameter, so Discord applies the app's configured default
+     * instead of this file asserting a bitfield of its own — which is exactly
+     * how a bot ends up requesting permissions it does not need.
+     */
+    invite: (process.env.INVITE_URL ?? '').trim(),
+    /** Support server invite. */
+    support: (process.env.SUPPORT_SERVER_URL ?? '').trim(),
+    website: (process.env.WEBSITE_URL ?? '').trim(),
+    github: (process.env.GITHUB_URL ?? '').trim(),
+    privacy: (process.env.PRIVACY_POLICY_URL ?? '').trim(),
+    terms: (process.env.TERMS_URL ?? '').trim(),
   },
 
   /* Owners */

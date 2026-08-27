@@ -33,6 +33,14 @@ export default new Command({
     if (bet > wallet)
       return interaction.editReply({ ...CB.errorResponse('Broke', `You only have ${fmt.coins(wallet)}.`) } as never);
 
+    // Take the stake before the reels roll — see escrowStake for why netting it
+    // off afterwards was exploitable.
+    if (!await Slots.escrowStake(interaction.user.id, bet)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Insufficient Funds', 'Your balance changed before the spin started — nothing was wagered.',
+      ) } as never);
+    }
+
     const reels = Slots.spin();
 
     await interaction.editReply(Slots.spinFrame('?', '?', '?', 'Spinning…'));

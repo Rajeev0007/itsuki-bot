@@ -62,7 +62,9 @@ export default new Command({
       const cost = config.pets.adoptCost;
       const { wallet } = await UserManager.getBalance(interaction.user.id);
       if (wallet < cost) return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Adopting costs ${fmt.coins(cost)}.`) } as never);
-      await UserManager.addWallet(interaction.user.id, -cost);
+      // Charge before handing over the pet, and abort if the charge fails.
+      if (!await UserManager.debitWallet(interaction.user.id, cost))
+        return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Adopting costs ${fmt.coins(cost)}.`) } as never);
       const pet: PetData = { type: typeId, name, emoji: '', hunger: 100, happiness: 100, health: 100, xp: 0, level: 1, adoptedAt: Date.now(), lastFed: Date.now(), lastPlayed: Date.now() };
       await petsDB.set(`${interaction.user.id}.pet`, pet);
       // The "Pet Lover" achievement had no code path granting it.
@@ -77,9 +79,18 @@ export default new Command({
     if (!pet) return interaction.editReply({ ...CB.errorResponse('No Pet', 'Use `/pet adopt` to get one!') } as never);
     const hSinceF = (Date.now() - pet.lastFed) / 3_600_000;
     const hSinceP = (Date.now() - pet.lastPlayed) / 3_600_000;
+    const before  = { hunger: pet.hunger, happiness: pet.happiness, health: pet.health };
     pet.hunger    = Math.max(0, pet.hunger - Math.floor(hSinceF * 5));
     pet.happiness = Math.max(0, pet.happiness - Math.floor(hSinceP * 3));
     if (pet.hunger === 0) pet.health = Math.max(0, pet.health - 5);
+
+    // Persist the decay. It used to be applied in memory and then thrown away on
+    // any branch that doesn't write the pet back (`/pet view` in particular), so
+    // the stats shown were real but the next command started from the old values
+    // again — decay silently reset and the starvation health penalty rarely stuck.
+    if (pet.hunger !== before.hunger || pet.happiness !== before.happiness || pet.health !== before.health) {
+      await petsDB.set(`${interaction.user.id}.pet`, pet);
+    }
 
     if (sub === 'view') {
       const bars = [
@@ -117,14 +128,17 @@ export default new Command({
       const { wallet: w } = await UserManager.getBalance(interaction.user.id);
       if (w < config.pets.feedCost)
         return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Food costs ${fmt.coins(config.pets.feedCost)} and you only have ${fmt.coins(w)}.`) } as never);
-      await UserManager.addWallet(interaction.user.id, -config.pets.feedCost);
+      if (!await UserManager.debitWallet(interaction.user.id, config.pets.feedCost))
+        return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Food costs ${fmt.coins(config.pets.feedCost)}.`) } as never);
       pet.hunger  = Math.min(100, pet.hunger + 40); pet.health = Math.min(100, pet.health + 5); pet.lastFed = Date.now();
       await petsDB.set(`${interaction.user.id}.pet`, pet);
       return interaction.editReply({ ...CB.successResponse('Fed!', `You fed **${pet.name}** for ${fmt.coins(config.pets.feedCost)}! Hunger: ${pet.hunger}%`) } as never);
     }
     if (sub === 'play') {
-      if (Date.now() - pet.lastPlayed < config.pets.feedCooldown)
-        return interaction.editReply({ ...CB.errorResponse('Tired', `${pet.name} needs rest. Try again ${fmt.relativeTime(pet.lastPlayed + config.pets.feedCooldown)}.`) } as never);
+      // Was checking feedCooldown — a copy-paste from the feed branch, so
+      // feeding and playing shared one timer.
+      if (Date.now() - pet.lastPlayed < config.pets.playCooldown)
+        return interaction.editReply({ ...CB.errorResponse('Tired', `${pet.name} needs rest. Try again ${fmt.relativeTime(pet.lastPlayed + config.pets.playCooldown)}.`) } as never);
       pet.happiness = Math.min(100, pet.happiness + 30); pet.lastPlayed = Date.now();
       grantPetXp(10);
       await petsDB.set(`${interaction.user.id}.pet`, pet);
@@ -140,12 +154,15 @@ export default new Command({
       const { wallet: w } = await UserManager.getBalance(interaction.user.id);
       if (w < config.pets.trainCost)
         return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Training costs ${fmt.coins(config.pets.trainCost)} and you only have ${fmt.coins(w)}.`) } as never);
-      await UserManager.addWallet(interaction.user.id, -config.pets.trainCost);
+      if (!await UserManager.debitWallet(interaction.user.id, config.pets.trainCost))
+        return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `Training costs ${fmt.coins(config.pets.trainCost)}.`) } as never);
       grantPetXp(25);
       await petsDB.set(`${interaction.user.id}.pet`, pet);
       await petsDB.set(`${interaction.user.id}.lastTrain`, Date.now());
-      const reward = fmt.randomInt(50, 200);
-      await UserManager.addWallet(interaction.user.id, reward);
+      // Rebate range now comes from config and is EV-negative against trainCost;
+      // the old hardcoded 50-200 paid more than training cost on average.
+      const reward = fmt.randomInt(config.pets.trainReward.min, config.pets.trainReward.max);
+      await UserManager.creditWallet(interaction.user.id, reward);
       return interaction.editReply({ ...CB.successResponse(
         'Trained!',
         `**${pet.name}** trained for ${fmt.coins(config.pets.trainCost)} and earned you ${fmt.coins(reward)}! Level: ${pet.level}`,

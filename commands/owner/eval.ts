@@ -15,11 +15,36 @@ import * as CB      from '../../builders/ComponentBuilder';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
 
+/**
+ * Environment variables whose values must never be echoed back.
+ *
+ * The token alone was not enough: `eval process.env` printed the Mongo
+ * connection string (with its credentials), both vote-webhook secrets and every
+ * third-party API key straight into a Discord message.
+ */
+const SECRET_ENV_KEYS = [
+  'DISCORD_TOKEN', 'MONGO_URI', 'MONGODB_URI',
+  'TOPGG_WEBHOOK_AUTH', 'DBL_WEBHOOK_AUTH', 'TOPGG_TOKEN', 'DBL_TOKEN',
+  'STEAM_API_KEY', 'HENRIKDEV_API_KEY', 'LAVALINK_PASSWORD',
+];
+
 /** Redact anything that looks like the bot token or another secret before display. */
 function redact(str: string): string {
   let out = str;
-  if (config.token) out = out.split(config.token).join('[REDACTED_TOKEN]');
-  return out.replace(/[\w-]{24,}\.[\w-]{6,}\.[\w-]{27,}/g, '[REDACTED_TOKEN]');
+  if (config.token) out = out.split(config.token).join('[REDACTED]');
+
+  // Every configured secret, by exact value — this is what catches a secret
+  // printed as part of a larger object dump.
+  for (const key of SECRET_ENV_KEYS) {
+    const value = process.env[key];
+    if (value && value.length >= 8) out = out.split(value).join(`[REDACTED_${key}]`);
+  }
+
+  // Bot-token shape.
+  out = out.replace(/[\w-]{24,}\.[\w-]{6,}\.[\w-]{27,}/g, '[REDACTED_TOKEN]');
+  // Any mongodb:// URI that carries credentials, even one built at runtime.
+  out = out.replace(/mongodb(\+srv)?:\/\/[^\s'"]*/gi, '[REDACTED_MONGO_URI]');
+  return out;
 }
 
 export default new Command({
@@ -38,7 +63,11 @@ export default new Command({
   cooldown:  0,
 
   async execute(interaction: ChatInputCommandInteraction, client?: Client) {
-    await interaction.deferReply({ flags: IS_V2 as never });
+    // Always ephemeral. Owner-only limits WHO can run it, not who can READ the
+    // result — the output was posted as a normal channel message, so anyone in
+    // the channel could read whatever was inspected. Every other owner command
+    // already defers ephemerally.
+    await interaction.deferReply({ flags: (IS_V2 | Number(MessageFlags.Ephemeral)) as never });
 
     const code   = interaction.options.getString('code', true);
     const silent = interaction.options.getBoolean('silent') ?? false;

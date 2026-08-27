@@ -235,9 +235,15 @@ export default new Event({
     // member and no role permissions, and `message.member` is null, so an
     // unguarded check would report every permission as missing.
     if (command.permissions.length && message.guild) {
-      const missing = command.permissions.filter(
-        (p) => !message.member?.permissions.has(p as never)
-      );
+      // Channel-aware, matching what Discord itself enforces for slash commands.
+      // member.permissions is role-only, so per-channel DENY overwrites were
+      // ignored on the prefix path — `,purge` worked in a channel where the
+      // moderator's Manage Messages had been explicitly revoked.
+      const perms = (message.member && message.channel && 'permissionsFor' in message.channel
+        ? (message.channel as { permissionsFor: (m: unknown) => { has: (p: never) => boolean } | null })
+          .permissionsFor(message.member)
+        : null) ?? message.member?.permissions ?? null;
+      const missing = command.permissions.filter((p) => !perms?.has(p as never));
       if (missing.length)
         return void replyError(message, 'Missing Permissions', `You need: ${missing.join(', ')}`);
     }

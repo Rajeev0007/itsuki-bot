@@ -185,36 +185,44 @@ export default new Command({
         const winner = players[turnIdx];
         const loser = players[1 - turnIdx];
 
-        await UserManager.incrementStat(winner.id, 'gamesPlayed');
-        await UserManager.incrementStat(loser.id, 'gamesPlayed');
-        await UserManager.incrementStat(winner.id, 'gamesWon');
-        await UserManager.addWallet(winner.id, REWARD);
-        await UserManager.recordTransaction(winner.id, 'connect4', REWARD, 'Connect Four victory');
-
+        // Show the result FIRST, then record it.
+        //
+        // These five store round-trips used to run before i.update(), against the
+        // same 3-second budget Discord gives a component interaction. When they
+        // overran it the update failed as an unhandled rejection — and because
+        // `finished`/collector.stop() had already run, the 'end' handler bailed
+        // out too, leaving a decided game frozen on "X's turn" with the coins
+        // already paid.
         await i.update({
           components: [render(
             `## 🏆 ${winner.disc} ${winner.name} wins!\nEarned **${fmt.coins(REWARD)}**.`,
             win, true,
           )],
-        } as never);
+        } as never).catch(() => {});
+
+        await UserManager.incrementStat(winner.id, 'gamesPlayed');
+        await UserManager.incrementStat(loser.id, 'gamesPlayed');
+        await UserManager.incrementStat(winner.id, 'gamesWon');
+        await UserManager.creditWallet(winner.id, REWARD);
+        await UserManager.recordTransaction(winner.id, 'connect4', REWARD, 'Connect Four victory');
         return;
       }
 
       if (isFull(board)) {
         finished = true;
         collector.stop('draw');
-        await UserManager.incrementStat(players[0].id, 'gamesPlayed');
-        await UserManager.incrementStat(players[1].id, 'gamesPlayed');
         await i.update({
           components: [render('## Draw — the board is full!', null, true)],
-        } as never);
+        } as never).catch(() => {});
+        await UserManager.incrementStat(players[0].id, 'gamesPlayed');
+        await UserManager.incrementStat(players[1].id, 'gamesPlayed');
         return;
       }
 
       turnIdx = 1 - turnIdx;
       await i.update({
         components: [render(`${players[turnIdx].disc} **${players[turnIdx].name}**'s turn`, null, false)],
-      } as never);
+      } as never).catch(() => {});
     });
 
     collector.on('end', async (_c: unknown, reason: string) => {

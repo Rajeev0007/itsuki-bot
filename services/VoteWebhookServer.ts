@@ -20,6 +20,13 @@
  *   - A provider with no configured secret is DISABLED rather than left open.
  *     Defaulting to "accept anything" would let anyone forge votes.
  *   - Per-IP rate limiting, so a failed-auth loop can't be used to brute force.
+ *     Behind a reverse proxy set TRUST_PROXY=true so this keys on the real client
+ *     rather than lumping every delivery into the proxy's single bucket.
+ *   - The payload's target bot id is checked against our own.
+ *
+ * Note that authentication alone does not make a request unique: both providers
+ * retry, so the REWARD path must be idempotent. That guard lives in
+ * VoteAnnouncer.handle (provider cooldown), not here.
  *
  * Endpoints (configure these URLs in each site's dashboard):
  *   POST /vote/topgg
@@ -30,6 +37,7 @@ import http from 'http';
 import crypto from 'crypto';
 import type { Client } from 'discord.js';
 import VoteManager, { type VoteProvider } from '../managers/VoteManager';
+import config from '../config/config';
 import logger from '../utils/Logger';
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -91,6 +99,32 @@ function respond(res: http.ServerResponse, status: number, body = ''): void {
   res.end(body);
 }
 
+/** The path portion of a raw request target, without query string or trailing slash. */
+function pathOf(rawUrl: string | undefined): string {
+  // The base is a throwaway — req.url is always origin-relative here.
+  const { pathname } = new URL(rawUrl ?? '/', 'http://localhost');
+  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+}
+
+/**
+ * The client address to rate-limit on.
+ *
+ * `req.socket.remoteAddress` is the PROXY's address when this sits behind nginx
+ * or Cloudflare — which is the documented production setup — so every provider's
+ * deliveries shared a single 60/min bucket and real votes were dropped with a 429
+ * once busy. X-Forwarded-For is only trusted when TRUST_PROXY is set, because it
+ * is client-controlled and would otherwise let anyone forge a fresh bucket per
+ * request and bypass the limit entirely.
+ */
+function clientIp(req: http.IncomingMessage): string {
+  if (process.env.TRUST_PROXY === 'true') {
+    const forwarded = req.headers['x-forwarded-for'];
+    const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return String(req.socket.remoteAddress ?? 'unknown');
+}
+
 /** Extracts the voter's user ID from either provider's payload shape. */
 function extractUserId(provider: VoteProvider, payload: Record<string, unknown>): string | null {
   // top.gg sends { user, bot, type, isWeekend }; DBL sends { id, username, ... }
@@ -136,20 +170,27 @@ const VoteWebhookServer = {
 
     server = http.createServer((req, res) => {
       void (async () => {
-        const ip = String(req.socket.remoteAddress ?? 'unknown');
+        const ip = clientIp(req);
         if (rateLimited(ip)) return respond(res, 429, 'Too many requests');
 
         // Cheap health check for uptime monitors, before any auth work.
-        if (req.method === 'GET' && req.url === '/vote/health') {
+        if (req.method === 'GET' && pathOf(req.url) === '/vote/health') {
           return respond(res, 200, 'ok');
         }
         if (req.method !== 'POST') return respond(res, 404);
 
+        // Compare the PATH, not the raw request target. req.url includes the
+        // query string and any trailing slash, so a dashboard URL saved as
+        // "/vote/topgg?id=123" or "/vote/topgg/" 404'd every delivery with
+        // nothing in the log explaining why.
         const provider: VoteProvider | null =
-          req.url === '/vote/topgg' ? 'topgg'
-          : req.url === '/vote/dbl' ? 'dbl'
+          pathOf(req.url) === '/vote/topgg' ? 'topgg'
+          : pathOf(req.url) === '/vote/dbl' ? 'dbl'
           : null;
-        if (!provider) return respond(res, 404);
+        if (!provider) {
+          logger.warn(`[Votes] 404 for ${req.method} ${req.url} — expected /vote/topgg or /vote/dbl`);
+          return respond(res, 404);
+        }
 
         const expected = provider === 'topgg'
           ? process.env.TOPGG_WEBHOOK_AUTH
@@ -175,6 +216,15 @@ const VoteWebhookServer = {
         if (!userId) {
           logger.warn(`[Votes] ${provider} payload had no usable user id`);
           return respond(res, 400, 'Missing user id');
+        }
+
+        // top.gg names the bot the vote was cast for. Confirming it stops a
+        // delivery intended for a different application (same secret pasted into
+        // two dashboards, or a copied config) from crediting votes here.
+        if (provider === 'topgg' && typeof payload.bot === 'string'
+          && config.clientId && payload.bot !== config.clientId) {
+          logger.warn(`[Votes] Rejected top.gg webhook for bot ${payload.bot} — this bot is ${config.clientId}`);
+          return respond(res, 400, 'Wrong bot');
         }
 
         // Acknowledge immediately. Both providers retry on a slow or failed

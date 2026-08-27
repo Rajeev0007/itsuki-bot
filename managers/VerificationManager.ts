@@ -21,6 +21,30 @@ import logger from '../utils/Logger';
 
 const guildsDB = getStore('guilds');
 
+/**
+ * Permissions that make a role unsuitable as an automatic verification reward.
+ *
+ * Anything that lets the holder escalate further, moderate other members, or
+ * speak as the server. A role carrying any of these would turn "click to verify"
+ * into "click to become staff".
+ */
+const DANGEROUS_PERMISSIONS: Array<readonly [bigint, string]> = [
+  [PermissionFlagsBits.Administrator,           'Administrator'],
+  [PermissionFlagsBits.ManageGuild,             'Manage Server'],
+  [PermissionFlagsBits.ManageRoles,             'Manage Roles'],
+  [PermissionFlagsBits.ManageChannels,          'Manage Channels'],
+  [PermissionFlagsBits.ManageWebhooks,          'Manage Webhooks'],
+  [PermissionFlagsBits.ManageGuildExpressions,  'Manage Expressions'],
+  [PermissionFlagsBits.ManageNicknames,         'Manage Nicknames'],
+  [PermissionFlagsBits.ManageMessages,          'Manage Messages'],
+  [PermissionFlagsBits.ManageThreads,           'Manage Threads'],
+  [PermissionFlagsBits.ManageEvents,            'Manage Events'],
+  [PermissionFlagsBits.BanMembers,              'Ban Members'],
+  [PermissionFlagsBits.KickMembers,             'Kick Members'],
+  [PermissionFlagsBits.ModerateMembers,         'Timeout Members'],
+  [PermissionFlagsBits.MentionEveryone,         'Mention @everyone'],
+];
+
 export type VerifyMethod = 'button' | 'captcha' | 'math' | 'passphrase' | 'age';
 
 export const METHODS: Array<{ id: VerifyMethod; label: string; description: string }> = [
@@ -116,13 +140,19 @@ const VerificationManager = {
   },
 
   /**
-   * Checks the bot can actually grant the configured role.
+   * Checks the bot can actually grant the configured role — and that the
+   * moderator asking for it is allowed to.
    *
    * Returns a reason string when it can't. Verifying this at setup time — and
    * again before granting — is what prevents "verified!" messages that didn't
    * assign anything.
+   *
+   * @param moderator The member configuring this, when there is one. Omitting it
+   *                  skips the two authorisation checks, which is correct for the
+   *                  re-validation done at grant time (no human is present) but
+   *                  NOT for a setup command.
    */
-  canAssign(guild: Guild, roleId: string): string | null {
+  canAssign(guild: Guild, roleId: string, moderator?: GuildMember | null): string | null {
     const me = guild.members.me;
     if (!me) return 'I could not resolve my own membership in this server.';
     if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
@@ -135,6 +165,28 @@ const VerificationManager = {
     // Discord refuses to assign a role at or above the bot's highest.
     if (me.roles.highest.comparePositionTo(role) <= 0) {
       return `My highest role must be **above** ${role.name}. Move it up in Server Settings → Roles.`;
+    }
+
+    // A verification role is handed out automatically to anyone who passes a
+    // captcha, so it must never carry privileged permissions. Without this a
+    // Manage Server moderator — who needs neither Administrator nor Manage Roles
+    // themselves — could nominate an Administrator role and then have any member
+    // press "Verify" to receive it.
+    const dangerous = DANGEROUS_PERMISSIONS
+      .filter(([bit]) => role.permissions.has(bit))
+      .map(([, label]) => label);
+    if (dangerous.length) {
+      return `**${role.name}** grants privileged permissions (${dangerous.join(', ')}). `
+        + 'Verification hands this role to anyone who passes the challenge, so a role with '
+        + 'moderator permissions cannot be used.';
+    }
+
+    // A moderator must not configure a role they could not assign by hand.
+    // canAssign previously took no moderator at all, so it structurally could not
+    // make this comparison and a moderator could pick a role above their own.
+    if (moderator && moderator.id !== guild.ownerId
+      && moderator.roles.highest.comparePositionTo(role) <= 0) {
+      return `**${role.name}** is not below your own highest role, so you cannot configure it for verification.`;
     }
     return null;
   },

@@ -74,6 +74,20 @@ export function musicCheck(
   if (opts.needsPlaying && (!session || !session.current)) {
     return { error: '🔇 Nothing is playing right now.', session: null, player: null };
   }
+  // A session without a player IS reachable: destroyPlayer deletes the session
+  // before destroying the player, and a socket loss can drop the player from
+  // lavende's map while the session survives. Every caller then dereferenced this
+  // straight away (player.setVolume, player.queue.shuffle, player.seek …) and the
+  // user got "Unexpected Error: Cannot read properties of null" instead of
+  // something actionable. needsQueue/needsPlaying only ever proved the SESSION
+  // existed, never the player.
+  if ((opts.needsQueue || opts.needsPlaying) && !player) {
+    return {
+      error: '🔇 The player is no longer connected. Run `/play` to start again.',
+      session: null,
+      player: null,
+    };
+  }
   if (session && member.voice.channel.id !== session.voiceChannel.id) {
     return {
       error: `You must be in <#${session.voiceChannel.id}> to use music commands.`,

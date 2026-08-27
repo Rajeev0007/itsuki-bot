@@ -48,8 +48,12 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
     return;
   }
   if (rawId.startsWith('music_skip:')) {
+    // Acknowledge BEFORE skipping. skip() fires trackStart, which deletes this
+    // now-playing message and sends a new one, so updating afterwards raced
+    // against its own side effect and often targeted a deleted message.
+    await interaction.update(musicSuccess('⏭️ Skipped.') as Parameters<typeof interaction.update>[0])
+      .catch(() => {});
     await p.skip();
-    await interaction.update(musicSuccess('⏭️ Skipped.') as Parameters<typeof interaction.update>[0]);
     return;
   }
   if (rawId.startsWith('music_loop:')) {
@@ -60,8 +64,17 @@ export async function execute(interaction: ButtonInteraction, client: Client): P
     return;
   }
   if (rawId.startsWith('music_stop:')) {
+    // This button lives ON the now-playing message, and destroyPlayer deletes
+    // that message — so updating afterwards always targeted a deleted message and
+    // reported "An error occurred processing this interaction" even though the
+    // stop had succeeded. Update first, then tear down.
+    await interaction.update(
+      musicSuccess('⏹️ Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0],
+    ).catch(() => {});
+    // Hand off ownership of this message before tearing down, or destroyPlayer
+    // deletes the very confirmation just rendered into it.
+    session.npMessage = null;
     await music.destroyPlayer(guildId);
-    await interaction.update(musicSuccess('⏹️ Stopped playback and cleared the queue.') as Parameters<typeof interaction.update>[0]);
     return;
   }
 }

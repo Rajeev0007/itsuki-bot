@@ -48,6 +48,15 @@ export async function execute(interaction: ButtonInteraction): Promise<void> {
     return;
   }
 
+  // Same escrow as the command: the stake leaves the wallet before the animation.
+  if (!await Slots.escrowStake(interaction.user.id, bet)) {
+    await interaction.followUp({
+      ...CB.errorResponse('Insufficient Funds', 'Your balance changed before the spin started — nothing was wagered.'),
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   const reels = Slots.spin();
 
   await interaction.editReply(Slots.spinFrame('?', '?', '?', 'Spinning…'));

@@ -16,6 +16,8 @@ import musicManager       from './managers/MusicManager';
 import NoPrefixManager    from './managers/NoPrefixManager';
 import BlacklistManager   from './managers/BlacklistManager';
 import MaintenanceManager from './managers/MaintenanceManager';
+import StatsManager       from './managers/StatsManager';
+import VoteWebhookServer  from './services/VoteWebhookServer';
 import CommandHandler     from './handlers/CommandHandler';
 import EventHandler       from './handlers/EventHandler';
 import InteractionHandler from './handlers/InteractionHandler';
@@ -25,6 +27,13 @@ logger.banner('Itsuki Bot', '1.0.0', 'Economy · Gambling · Music · Anime · S
 
 if (!config.token)    { logger.error('DISCORD_TOKEN is not set. Exiting.'); process.exit(1); }
 if (!config.clientId) { logger.error('DISCORD_CLIENT_ID is not set. Exiting.'); process.exit(1); }
+// Not fatal, but it must not be silent: with no owners the bot boots normally
+// and every owner-gated feature (/panel, /eval, /maintenance, /premium,
+// /blacklist, /reload, /shutdown) is permanently unusable by ANYONE, including
+// the ability to lift maintenance mode once it has been switched on.
+if (!config.owners.length) {
+  logger.warn('[Startup] BOT_OWNERS is empty — all owner-only commands are disabled. Set it in .env (comma-separated user IDs).');
+}
 
 // ── Discord client ────────────────────────────────────────────────────────────
 const client = new Client({
@@ -60,23 +69,45 @@ interactionHandler.load();
 
 // ── Process handlers ──────────────────────────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
-  logger.error('[Process] Unhandled Promise Rejection:', (reason as Error)?.message ?? reason);
+  // Log the whole error, not just .message — the stack is what makes these
+  // diagnosable, and routing it through logger.debug hid it entirely at the
+  // default LOG_LEVEL=info.
+  logger.error('[Process] Unhandled Promise Rejection:', (reason as Error)?.stack ?? reason);
 });
 process.on('uncaughtException', (err) => {
-  logger.error('[Process] Uncaught Exception:', err.message);
-  logger.debug(err.stack ?? '');
+  logger.error('[Process] Uncaught Exception:', err.stack ?? err.message);
+  // Registering a handler suppresses Node's default abort, so the process was
+  // carrying on after an uncaught throw with module state, open cursors and
+  // possibly half-applied economy mutations all in an unknown condition —
+  // still serving commands. Flush what we safely can, then let the supervisor
+  // restart us clean.
+  void shutdown('uncaughtException', 1);
 });
 
-const shutdown = async (signal: string) => {
+let shuttingDown = false;
+const shutdown = async (signal: string, code = 0) => {
+  // A second SIGTERM (or an exception during shutdown) must not start a second
+  // teardown on top of the first.
+  if (shuttingDown) return;
+  shuttingDown = true;
   logger.info(`[Process] Received ${signal} — shutting down gracefully…`);
-  client.destroy();
+
+  // StatsManager buffers messages/commands/voice-seconds in memory and only
+  // persists every 30 s, so without this every restart silently discarded up to
+  // half a minute of activity. /shutdown already did this; the signal path did not.
+  await StatsManager.flush().catch(() => {});
+  // Free the port so a fast restart doesn't hit EADDRINUSE.
+  try { VoteWebhookServer.stop(); } catch { /* not running */ }
+  // destroy() is async in discord.js v14; not awaiting it meant process.exit
+  // could fire mid-teardown.
+  await client.destroy().catch(() => {});
   // Closing the pool lets in-flight writes finish instead of being cut off
   // mid-operation.
   await closeMongo().catch(() => {});
-  process.exit(0);
+  process.exit(code);
 };
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {

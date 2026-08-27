@@ -61,7 +61,10 @@ export default new Command({
       const totalCost = item.price * qty;
       const { wallet } = await UserManager.getBalance(interaction.user.id);
       if (wallet < totalCost) return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `You need ${fmt.coins(totalCost)} but only have ${fmt.coins(wallet)}.`) } as never);
-      await UserManager.addWallet(interaction.user.id, -totalCost);
+      // Charge atomically before granting the item, so a raced purchase cannot
+      // hand over stock that was never paid for.
+      if (!await UserManager.debitWallet(interaction.user.id, totalCost))
+        return interaction.editReply({ ...CB.errorResponse('Insufficient Funds', `You need ${fmt.coins(totalCost)}.`) } as never);
       await inventoryDB.ensure(interaction.user.id, {});
       const key = `${interaction.user.id}.${item.id}`;
       await inventoryDB.ensure(key, 0);

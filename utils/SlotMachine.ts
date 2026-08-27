@@ -75,13 +75,32 @@ export interface SlotSettlement {
   wallet: number;
 }
 
-/** Applies the result of a spin to the user's balance and stats. */
+/**
+ * Takes the stake up front. Returns false when the wallet could not cover it,
+ * in which case nothing was charged and the caller must not spin.
+ *
+ * The stake has to leave the wallet BEFORE the spin animation, not be netted off
+ * afterwards. While the reels were rolling the coins were still spendable, so a
+ * second command (`/deposit all`) could empty the wallet mid-animation; the old
+ * net settlement then clamped the loss to zero while a win still paid in full —
+ * risk-free gambling, repeatable indefinitely.
+ */
+export async function escrowStake(userId: string, bet: number): Promise<boolean> {
+  return UserManager.debitWallet(userId, bet);
+}
+
+/**
+ * Applies the result of a spin to the user's balance and stats.
+ *
+ * Assumes the stake has already been taken by `escrowStake`, so this credits the
+ * gross payout rather than the net difference.
+ */
 export async function settleSpin(userId: string, reels: string[], bet: number): Promise<SlotSettlement> {
   const payout = calcPayout(reels, bet);
   const net = payout - bet;
   const outcome = outcomeOf(payout, bet);
 
-  await UserManager.addWallet(userId, net);
+  if (payout > 0) await UserManager.creditWallet(userId, payout);
   await UserManager.incrementStat(userId, 'gamesPlayed');
   // Only a genuine profit counts as a win.
   if (outcome === 'win') await UserManager.incrementStat(userId, 'gamesWon');

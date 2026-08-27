@@ -208,7 +208,11 @@ const CardManager = {
       return { ok: false, reason: `You need ${cost.toLocaleString('en-US')} coins to upgrade **${card.name}** (you have ${wallet.toLocaleString('en-US')}).` };
     }
 
-    await UserManager.addWallet(userId, -cost);
+    // Atomic charge: the balance check above is for the error message, this is
+    // what actually gates the upgrade.
+    if (!await UserManager.debitWallet(userId, cost)) {
+      return { ok: false, reason: `You need ${cost.toLocaleString('en-US')} coins to upgrade **${card.name}**.` };
+    }
     if (usedCopy) await cardsDB.set(`${userId}.cards.${cardId}.copies`, copies - 1);
     await cardsDB.set(`${userId}.cards.${cardId}.level`, level + 1);
     await UserManager.recordTransaction(userId, 'card_upgrade', -cost, `Upgraded ${card.name} to Lv.${level + 1}`);
@@ -347,8 +351,15 @@ const CardManager = {
     const stillGone = await auctionsDB.get(`listings.${listingId}`);
     if (stillGone) return { ok: false, reason: 'That listing was just bought by someone else.' };
 
-    await UserManager.addWallet(buyerId, -listing.price);
-    await UserManager.addWallet(listing.sellerId, listing.price);
+    // The race guard above protected the CARD but not the money: the seller used
+    // to be credited unconditionally, so a buyer whose wallet emptied after the
+    // balance check paid nothing while the seller was still paid in full. Take
+    // the money atomically and put the listing back if it fails.
+    if (!await UserManager.debitWallet(buyerId, listing.price)) {
+      await auctionsDB.set(`listings.${listingId}`, listing);
+      return { ok: false, reason: `You need ${listing.price.toLocaleString('en-US')} coins to buy this.` };
+    }
+    await UserManager.creditWallet(listing.sellerId, listing.price);
 
     await cardsDB.ensure(`${buyerId}`, { cards: {}, claimedTotal: 0 });
     const existing = await this.getCard(buyerId, listing.card.id);
