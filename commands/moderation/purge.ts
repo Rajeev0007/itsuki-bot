@@ -33,13 +33,20 @@ export default new Command({
     const onlyUser = interaction.options.getUser('user');
     const guild = interaction.guild!;
 
-    if (!ModerationManager.botHas(guild, PermissionFlagsBits.ManageMessages)) {
-      return interaction.editReply({ ...CB.errorResponse('Missing Permission', 'I need the **Manage Messages** permission.') } as never);
-    }
-
     const channel = interaction.channel as TextChannel | null;
     if (!channel || typeof channel.bulkDelete !== 'function') {
       return interaction.editReply({ ...CB.errorResponse('Unsupported Channel', 'I cannot bulk-delete messages in this channel type.') } as never);
+    }
+
+    // Checked on THIS channel, not guild-wide. Manage Messages is overwritable
+    // per channel, so a guild-level check passed for a channel where the bot is
+    // explicitly denied — and the failure then surfaced as a raw Discord
+    // "Missing Permissions" string from the catch below.
+    const me = guild.members.me;
+    if (!me || !channel.permissionsFor(me)?.has(PermissionFlagsBits.ManageMessages)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Missing Permission', `I need the **Manage Messages** permission in ${channel}.`,
+      ) } as never);
     }
 
     let fetched;

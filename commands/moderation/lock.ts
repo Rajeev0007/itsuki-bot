@@ -56,6 +56,17 @@ export default new Command({
       ) } as never);
     }
 
+    // The CALLER must be able to manage permissions in the TARGET channel. The
+    // slash gate Discord applies is channel-aware, but the prefix router's is
+    // not, so `,lock on channel:#staff` could otherwise be run by a moderator
+    // who is explicitly denied that permission in #staff.
+    const callerMember = await guild.members.fetch(interaction.user.id).catch(() => null);
+    if (!callerMember || !channel.permissionsFor(callerMember)?.has(PermissionFlagsBits.ManageRoles)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'No Access', `You need the **Manage Permissions** permission in ${channel}.`,
+      ) } as never);
+    }
+
     const everyone = guild.roles.everyone;
     const locking = sub === 'on';
 

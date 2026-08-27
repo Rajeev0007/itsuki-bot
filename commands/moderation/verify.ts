@@ -61,10 +61,15 @@ export default new Command({
     .addSubcommand((s) => s.setName('disable').setDescription('Turn verification off'))
     .addSubcommand((s) => s.setName('user').setDescription('Manually verify a member')
       .addUserOption((o) => o.setName('member').setDescription('Member to verify').setRequired(true)))
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    // ManageRoles, not ManageGuild: this command configures (and /verify user
+    // performs) an automatic role grant, so the permission it requires should be
+    // the one Discord requires for the operation itself. Gating on ManageGuild
+    // let a moderator with no role-management rights of their own decide which
+    // role every member receives.
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
   category: 'moderation',
   guildOnly: true,
-  permissions: ['ManageGuild'],
+  permissions: ['ManageRoles'],
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({
@@ -201,13 +206,16 @@ export default new Command({
     }
 
     // Validate the role BEFORE saving, so setup can't succeed into a state that
-    // silently fails for every member who clicks.
-    const denial = VerificationManager.canAssign(guild, role.id);
+    // silently fails for every member who clicks. Passing the moderator is what
+    // enables the "not above your own highest role" and "no privileged
+    // permissions" checks — without it, setup was a privilege-escalation route.
+    const moderator = await guild.members.fetch(interaction.user.id).catch(() => null);
+    const denial = VerificationManager.canAssign(guild, role.id, moderator);
     if (denial) {
       return interaction.editReply({ ...CB.errorResponse('Role Not Assignable', denial) } as never);
     }
     if (removeRole) {
-      const removeDenial = VerificationManager.canAssign(guild, removeRole.id);
+      const removeDenial = VerificationManager.canAssign(guild, removeRole.id, moderator);
       if (removeDenial) {
         return interaction.editReply({ ...CB.errorResponse(
           'Remove-Role Not Manageable', `For the role to remove: ${removeDenial}`,

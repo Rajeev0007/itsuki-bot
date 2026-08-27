@@ -55,7 +55,10 @@ export default new Command({
       const member = guild.members.cache.get(target.id)
         ?? await guild.members.fetch(target.id).catch(() => null);
       if (member) {
-        const denied = ModerationManager.canModerate(interaction.member as never, member, 'timeout');
+        // canTarget, not canModerate('timeout'): a warning is a datastore write,
+        // so requiring the bot to be *able to time the target out* blocked
+        // warnings that have no API side effect at all.
+        const denied = ModerationManager.canTarget(interaction.member as never, member, 'warn');
         if (denied) return interaction.editReply({ ...CB.errorResponse('Cannot Warn', denied) } as never);
       }
 

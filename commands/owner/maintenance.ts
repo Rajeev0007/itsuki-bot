@@ -13,6 +13,9 @@ import MaintenanceManager  from '../../managers/MaintenanceManager';
 import * as CB             from '../../builders/ComponentBuilder';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
+// Owner-only status output, kept out of public channels like the rest of the
+// owner surface.
+const V2_EPHEMERAL = Number(MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral);
 
 export default new Command({
   data: new SlashCommandBuilder()
@@ -32,7 +35,7 @@ export default new Command({
   cooldown:  1000,
 
   async execute(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply({ flags: IS_V2 as never });
+    await interaction.deferReply({ flags: V2_EPHEMERAL as never });
     const sub = interaction.options.getSubcommand();
     // Prefix users aren't restricted to the slash subcommand choices, so an
     // unrecognised value has to be rejected explicitly. Without this the

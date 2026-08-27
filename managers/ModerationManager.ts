@@ -88,6 +88,30 @@ const ModerationManager = {
     return null;
   },
 
+  /**
+   * Hierarchy and target checks WITHOUT any bot-capability requirement.
+   *
+   * For actions that touch no Discord API — recording a warning is just a
+   * datastore write — and for lifting a punishment, where the bot's ability to
+   * apply one is irrelevant.
+   *
+   * /warn used to call `canModerate(…, 'timeout')`, which meant a bot lacking
+   * Timeout Members could not record a warning at all (reporting the nonsensical
+   * "I don't have permission to time out X"), and nobody above the bot's role
+   * could be warned even by a moderator who legitimately outranked them.
+   */
+  canTarget(moderator: GuildMember, target: GuildMember, action: string): ModDenial {
+    if (target.id === moderator.id)          return `You cannot ${action} yourself.`;
+    if (target.id === target.client.user.id) return `I cannot ${action} myself.`;
+    if (target.id === target.guild.ownerId)  return `You cannot ${action} the server owner.`;
+
+    const moderatorIsOwner = moderator.id === moderator.guild.ownerId;
+    if (!moderatorIsOwner && moderator.roles.highest.comparePositionTo(target.roles.highest) <= 0) {
+      return `You cannot ${action} **${target.user.username}** — their highest role is the same as or above yours.`;
+    }
+    return null;
+  },
+
   /** Confirms the bot itself holds a permission before attempting an action. */
   botHas(guild: Guild, permission: bigint): boolean {
     return guild.members.me?.permissions.has(permission) ?? false;

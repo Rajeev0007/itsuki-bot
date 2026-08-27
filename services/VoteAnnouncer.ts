@@ -39,12 +39,29 @@ const VoteAnnouncer = {
       return;
     }
 
+    // IDEMPOTENCY. Both providers deliver at-least-once: a dropped ACK, a socket
+    // reset or a restart mid-handler all produce a retry, and the webhook server
+    // answers 200 BEFORE calling this. Without a guard every retry paid the
+    // reward again — and anyone holding the shared secret could replay one
+    // captured request in a loop to mint coins indefinitely.
+    //
+    // A provider's own vote cooldown is the natural window: a second genuine vote
+    // cannot arrive inside it, so anything that does is a duplicate.
+    const cooldown = await VoteManager.cooldownRemaining(vote.userId, vote.provider);
+    if (cooldown > 0) {
+      logger.warn(
+        `[Votes] Ignoring duplicate ${provider.label} vote for ${vote.userId} — `
+        + `${Math.ceil(cooldown / 60_000)} min left on that provider's cooldown.`,
+      );
+      return;
+    }
+
     const { record, streakIncreased } = await VoteManager.recordVote(vote.userId, vote.provider);
 
     // top.gg counts weekend votes double, so the reward matches.
     const multiplier = vote.provider === 'topgg' && vote.isWeekend ? 2 : 1;
     const reward = VOTE_REWARD * multiplier;
-    await UserManager.addWallet(vote.userId, reward);
+    await UserManager.creditWallet(vote.userId, reward);
     await UserManager.recordTransaction(
       vote.userId, 'vote', reward, `Voted on ${provider.label}${multiplier > 1 ? ' (weekend ×2)' : ''}`,
     );

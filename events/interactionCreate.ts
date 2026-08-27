@@ -32,7 +32,21 @@ export default new Event({
     },
   ) {
     // Blacklisted users get nothing — no autocomplete, no component interactions, no commands.
-    if (BlacklistManager.has(interaction.user.id)) return;
+    //
+    // Anything that can be acknowledged IS acknowledged, though. Returning
+    // silently left the interaction unanswered, so Discord showed the generic red
+    // "This interaction failed" after three seconds, which is indistinguishable
+    // from the bot being down and generated support noise. Autocomplete has no
+    // way to reply with a message, so it just stops.
+    if (BlacklistManager.has(interaction.user.id)) {
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          ...CB.errorResponse('Access Denied', 'You are blacklisted from using this bot.'),
+          flags: V2_EPHEMERAL,
+        } as never).catch(() => {});
+      }
+      return;
+    }
 
     // ── Autocomplete ─────────────────────────────────────────────────────────
     if (interaction.isAutocomplete()) {
@@ -178,8 +192,15 @@ export default new Event({
     }
 
     if (command.permissions.length && guild) {
-      const member = cmdInteraction.member as { permissions?: { has: (p: string) => boolean } } | null;
-      const missing = command.permissions.filter((p) => !member?.permissions?.has(p));
+      // memberPermissions is the CHANNEL-aware set; member.permissions is only
+      // roles and ignores per-channel overwrites. Using the latter meant a
+      // moderator whose Manage Messages was denied in one channel still passed
+      // the gate there. Falls back to the role-only set when the channel cannot
+      // be resolved, which fails closed rather than open.
+      const perms = cmdInteraction.memberPermissions
+        ?? (cmdInteraction.member as { permissions?: { has: (p: string) => boolean } } | null)?.permissions
+        ?? null;
+      const missing = command.permissions.filter((p) => !perms?.has(p as never));
       if (missing.length) {
         await cmdInteraction.reply({
           ...CB.errorResponse('Missing Permissions', `You need: ${missing.join(', ')}`),

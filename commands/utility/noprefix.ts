@@ -33,12 +33,21 @@ function ok(title: string, body: string) {
   };
 }
 
+/**
+ * Failure card.
+ *
+ * Was a byte-for-byte copy of `ok()`, so "Unknown Subcommand", "Cannot Add Bot"
+ * and "Could Not Grant" rendered identically to a successful grant and the
+ * operator could not tell whether the command had actually worked. The marker is
+ * added here rather than by switching to CB.errorResponse because that helper
+ * currently renders the same as CB.successResponse.
+ */
 function err(title: string, body: string) {
   return {
     flags: IS_V2,
     components: [
       new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${title}\n${body}`)),
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ⚠️ ${title}\n${body}`)),
     ],
   };
 }
@@ -76,7 +85,11 @@ export default new Command({
   cooldown: 1000,
 
   async execute(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
+    // Ephemeral: `noprefix list` discloses who has been granted prefix-free
+    // access, which is owner-only information.
+    await interaction.deferReply({
+      flags: (MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral) as never,
+    });
 
     const sub = interaction.options.getSubcommand();
     // Prefix users aren't restricted to the slash subcommand choices, so an

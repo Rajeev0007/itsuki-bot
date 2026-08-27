@@ -41,8 +41,23 @@ export default new Command({
       return interaction.editReply({ ...CB.errorResponse('Not Timed Out', `**${target.username}** is not currently timed out.`) } as never);
     }
 
-    const denied = ModerationManager.canModerate(interaction.member as never, member, 'timeout');
+    // Lifting a punishment is the safe direction, so this uses the hierarchy
+    // checks WITHOUT the 'timeout' capability rules. Routing through
+    // canModerate(…, 'timeout') meant a moderator could not clear their own
+    // timeout (they were told "You cannot timeout yourself") and could not
+    // release anyone ranked above them even though releasing is harmless.
+    const denied = member.id === interaction.user.id
+      ? null
+      : ModerationManager.canTarget(interaction.member as never, member, 'untimeout');
     if (denied) return interaction.editReply({ ...CB.errorResponse('Cannot Modify', denied) } as never);
+
+    // The bot still has to actually be able to do it.
+    if (!member.moderatable) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Cannot Modify',
+        `I can't modify **${target.username}** — their highest role is above mine, or I'm missing Timeout Members.`,
+      ) } as never);
+    }
 
     try {
       await member.timeout(null, `${reason} — by ${interaction.user.tag ?? interaction.user.username}`);

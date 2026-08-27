@@ -17,6 +17,10 @@ import config            from '../../config/config';
 import * as CB           from '../../builders/ComponentBuilder';
 
 const IS_V2 = Number(MessageFlags.IsComponentsV2);
+// `blacklist list` prints user IDs and the reasons they were blocked. That is
+// owner-only information, but the reply was a normal channel message — readable
+// by whoever happened to be in the channel the owner typed it in.
+const V2_EPHEMERAL = Number(MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral);
 
 export default new Command({
   data: new SlashCommandBuilder()
@@ -41,7 +45,7 @@ export default new Command({
   cooldown:  1000,
 
   async execute(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply({ flags: IS_V2 as never });
+    await interaction.deferReply({ flags: V2_EPHEMERAL as never });
     const sub = interaction.options.getSubcommand();
     // Prefix users aren't restricted to the slash subcommand choices, so an
     // unrecognised value has to be rejected explicitly. Without this the

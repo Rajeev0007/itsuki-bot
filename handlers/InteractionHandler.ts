@@ -15,6 +15,26 @@ interface InteractionModule {
   execute: (interaction: Interaction, client: Client) => Promise<void>;
 }
 
+/**
+ * Does a `PREFIX:*` registration claim this customId?
+ *
+ * Two conventions are in use in this codebase and both must keep working:
+ *   `panel_:*`    → owns every id beginning with `panel_` (panel_maint:…, panel_nav:…)
+ *   `card_page:*` → owns the `card_page` SEGMENT only (card_page:<user>:<page>:…)
+ *
+ * The previous logic was a bare `startsWith` with the ':' stripped, which made
+ * the second form leak: `card_page:*` also claimed `card_page_display` and
+ * `lb_page:*` claimed `lb_page_display`, routing a page-indicator button into the
+ * pagination handler. Requiring a segment boundary — end of string, or ':' — fixes
+ * that, while a prefix deliberately ending in '_' keeps its open-ended behaviour.
+ */
+function matchesPrefix(prefix: string, rawId: string): boolean {
+  if (!rawId.startsWith(prefix)) return false;
+  if (prefix.endsWith('_')) return true;              // "panel_" style
+  if (rawId.length === prefix.length) return true;    // exact
+  return rawId[prefix.length] === ':';                // segment boundary
+}
+
 export default class InteractionHandler {
   client: Client;
   buttons: Map<string, InteractionModule>;
@@ -40,7 +60,14 @@ export default class InteractionHandler {
   private _loadDir(subdir: string, map: Map<string, InteractionModule>): void {
     const dir = path.join(__dirname, '../interactions', subdir);
     if (!fs.existsSync(dir)) return;
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'));
+    // Accept .js as well as .ts. With .ts only, a compiled deployment loaded
+    // ZERO component handlers, so every verify/panel/backup/record button showed
+    // "This interaction failed" with just a debug line in the log. `.d.ts` is
+    // excluded because it contains no runtime module. (commands/owner/reload.ts
+    // already accepts both extensions.)
+    const files = fs.readdirSync(dir).filter(
+      (f) => (f.endsWith('.ts') || f.endsWith('.js')) && !f.endsWith('.d.ts'),
+    );
     for (const file of files) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -69,12 +96,13 @@ export default class InteractionHandler {
     const rawId = (interaction as { customId?: string }).customId ?? '';
     let handler = map.get(rawId);
     if (!handler) {
-      for (const [key, h] of map) {
-        if (key.endsWith(':*') && rawId.startsWith(key.slice(0, -2))) {
-          handler = h;
-          break;
-        }
-      }
+      // Wildcard match, resolved longest-prefix-first so the most specific
+      // registration wins instead of whichever the Map happened to yield first.
+      const candidates = [...map.entries()]
+        .filter(([key]) => key.endsWith(':*'))
+        .map(([key, h]) => ({ prefix: key.slice(0, -2), h }))
+        .sort((a, b) => b.prefix.length - a.prefix.length);
+      handler = candidates.find(({ prefix }) => matchesPrefix(prefix, rawId))?.h;
     }
 
     if (!handler) {

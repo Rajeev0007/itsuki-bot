@@ -260,10 +260,17 @@ export default new Command({
 
       // The CALLER must be able to read the channel — otherwise this becomes a
       // way to read private channels through the bot.
-      const callerPerms = interaction.memberPermissions;
-      const canView = channel.permissionsFor(interaction.user.id)?.has(PermissionFlagsBits.ViewChannel)
-        ?? callerPerms?.has(PermissionFlagsBits.ViewChannel)
-        ?? false;
+      //
+      // This must FAIL CLOSED. It previously fell back to the caller's
+      // permissions in the channel they typed the command in, which is virtually
+      // always ViewChannel=true — so whenever permissionsFor() returned null
+      // (member not in cache) the private-channel guard silently passed and the
+      // bot mirrored attachments from a channel the caller could not see.
+      // Fetching the member first is what makes permissionsFor reliable.
+      const callerMember = await guild.members.fetch(interaction.user.id).catch(() => null);
+      const canView = callerMember
+        ? (channel.permissionsFor(callerMember)?.has(PermissionFlagsBits.ViewChannel) ?? false)
+        : false;
       if (!canView) {
         return interaction.editReply({ ...CB.errorResponse(
           'No Access', 'You do not have access to that channel.',

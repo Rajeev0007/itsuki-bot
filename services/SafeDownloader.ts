@@ -65,14 +65,22 @@ export class DownloadError extends Error {
 const ALLOWED_MIME = [
   // Images
   'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif',
-  'image/svg+xml', 'image/tiff', 'image/x-icon', 'image/vnd.microsoft.icon',
+  'image/tiff', 'image/x-icon', 'image/vnd.microsoft.icon',
+  // APNG is a legitimate sticker format. ExpressionService accepts it, but it was
+  // missing here, so downloadMedia rejected the file before that code ever ran.
+  'image/apng',
   // Video
   'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/mpeg',
   // Audio
   'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/wav', 'audio/x-wav',
   'audio/webm', 'audio/flac', 'audio/mp4', 'audio/aac', 'audio/opus',
   // Documents and text — non-executable, previewable
-  'text/plain', 'text/markdown', 'text/csv', 'text/xml', 'text/html',
+  //
+  // text/html and image/svg+xml are deliberately ABSENT. Both can carry script,
+  // and relaying them re-hosts active content under the bot's name (a stored-XSS
+  // vector for anything that renders the attachment). Their presence also
+  // contradicted this file's own header, which promises no executable content.
+  'text/plain', 'text/markdown', 'text/csv', 'text/xml',
   'application/json', 'application/pdf', 'application/xml',
   'application/rtf', 'text/rtf',
   // Fonts
@@ -85,7 +93,10 @@ const ALLOWED_PORTS = new Set([80, 443]);
 export const DISCORD_BASE_UPLOAD_LIMIT = 10 * 1024 * 1024;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
 const MAX_REDIRECTS = 4;
+/** Per-socket inactivity timeout. */
 const TIMEOUT_MS = 20_000;
+/** Wall-clock ceiling for a whole download, redirects included. */
+const TOTAL_DEADLINE_MS = 45_000;
 
 export interface DownloadResult {
   buffer: Buffer;
@@ -139,8 +150,15 @@ export function isPrivateAddress(ip: string): boolean {
   return false;
 }
 
+/** A validated URL together with the exact addresses that were vetted. */
+interface SafeTarget {
+  url: URL;
+  /** Empty when the host was already a literal IP. */
+  addresses: string[];
+}
+
 /** Validates a URL and resolves it to a vetted set of addresses. */
-async function assertSafeUrl(rawUrl: string): Promise<URL> {
+async function assertSafeUrl(rawUrl: string): Promise<SafeTarget> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -162,11 +180,15 @@ async function assertSafeUrl(rawUrl: string): Promise<URL> {
   }
 
   // A bare IP in the URL still has to pass the range checks.
-  if (net.isIP(url.hostname) !== 0) {
-    if (isPrivateAddress(url.hostname)) {
+  // Note WHATWG URL keeps the brackets on an IPv6 literal, so strip them before
+  // asking net.isIP — otherwise the literal-IP branch never ran for IPv6 and the
+  // address fell through to a DNS lookup of "[::1]", which merely failed.
+  const bareHost = url.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(bareHost) !== 0) {
+    if (isPrivateAddress(bareHost)) {
       throw new DownloadError('That address is on a private or reserved network.', 'blocked');
     }
-    return url;
+    return { url, addresses: [] };
   }
 
   let addresses: string[];
@@ -192,7 +214,36 @@ async function assertSafeUrl(rawUrl: string): Promise<URL> {
     }
   }
 
-  return url;
+  // The vetted addresses are returned, not discarded. See pinnedLookup: the
+  // connection MUST go to one of these, otherwise validation and connection each
+  // do their own DNS lookup and an attacker-controlled nameserver with a 0-second
+  // TTL can answer the first with a public IP and the second with 127.0.0.1.
+  return { url, addresses };
+}
+
+/**
+ * A `lookup` implementation for http.get that returns only pre-validated
+ * addresses, closing the DNS-rebinding (TOCTOU) hole.
+ *
+ * Passing this instead of connecting to the IP directly keeps `url.hostname`
+ * intact, so the Host header and TLS SNI still carry the real hostname and
+ * virtual-hosted servers and certificate validation keep working.
+ */
+function pinnedLookup(addresses: string[]) {
+  return (
+    _hostname: string,
+    options: { all?: boolean },
+    callback: (
+      err: NodeJS.ErrnoException | null,
+      address: string | Array<{ address: string; family: number }>,
+      family?: number,
+    ) => void,
+  ): void => {
+    const picked = addresses[0];
+    const family = net.isIP(picked);
+    if (options?.all) callback(null, [{ address: picked, family }]);
+    else callback(null, picked, family);
+  };
 }
 
 function filenameFrom(url: URL, contentType: string): string {
@@ -214,14 +265,18 @@ function filenameFrom(url: URL, contentType: string): string {
 }
 
 /** Performs one request, returning either a redirect target or the body. */
-function requestOnce(url: URL, maxBytes: number): Promise<
+function requestOnce(target: SafeTarget, maxBytes: number): Promise<
   { redirectTo: string } | { buffer: Buffer; contentType: string }
 > {
+  const { url, addresses } = target;
   return new Promise((resolve, reject) => {
     const client = url.protocol === 'https:' ? https : http;
 
     const req = client.get(url, {
       timeout: TIMEOUT_MS,
+      // Pin the connection to the address that was actually validated. Omitted
+      // for a literal-IP host, where there is nothing to resolve.
+      ...(addresses.length ? { lookup: pinnedLookup(addresses) as never } : {}),
       headers: {
         'User-Agent': 'ItsukiBot/1.0 (+media relay)',
         'Accept': '*/*',
@@ -305,10 +360,19 @@ export async function downloadMedia(
   rawUrl: string,
   maxBytes = DEFAULT_MAX_BYTES,
 ): Promise<DownloadResult> {
+  // TIMEOUT_MS is a per-socket INACTIVITY timeout, and each redirect hop gets a
+  // fresh one, so a server trickling one byte every 19 s could hold a request
+  // open forever. This is the wall-clock ceiling for the whole operation.
+  const deadline = Date.now() + TOTAL_DEADLINE_MS;
+  const checkDeadline = () => {
+    if (Date.now() > deadline) throw new DownloadError('The download took too long.', 'network');
+  };
+
   const redirects: string[] = [];
   let current = await assertSafeUrl(rawUrl);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    checkDeadline();
     const outcome = await requestOnce(current, maxBytes);
 
     if ('redirectTo' in outcome) {
@@ -325,9 +389,9 @@ export async function downloadMedia(
     return {
       buffer: outcome.buffer,
       contentType: outcome.contentType,
-      filename: filenameFrom(current, outcome.contentType),
+      filename: filenameFrom(current.url, outcome.contentType),
       bytes: outcome.buffer.length,
-      finalUrl: current.toString(),
+      finalUrl: current.url.toString(),
       redirects,
     };
   }

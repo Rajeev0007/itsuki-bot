@@ -29,10 +29,6 @@ export default new Command({
     const raw = (interaction.options.getString('duration') ?? '').trim();
     const guild = interaction.guild!;
 
-    if (!ModerationManager.botHas(guild, PermissionFlagsBits.ManageChannels)) {
-      return interaction.editReply({ ...CB.errorResponse('Missing Permission', 'I need the **Manage Channels** permission.') } as never);
-    }
-
     // "0" means disable, so it has to be handled before parseDuration (which
     // rejects zero as unparseable).
     let seconds: number;
@@ -55,6 +51,26 @@ export default new Command({
     const channel = (interaction.options.getChannel('channel') ?? interaction.channel) as TextChannel | null;
     if (!channel || typeof channel.setRateLimitPerUser !== 'function') {
       return interaction.editReply({ ...CB.errorResponse('Unsupported Channel', 'Slowmode cannot be set on that channel type.') } as never);
+    }
+
+    // Manage Channels is overwritable per channel, so this has to be checked on
+    // the TARGET channel rather than guild-wide.
+    const me = guild.members.me;
+    if (!me || !channel.permissionsFor(me)?.has(PermissionFlagsBits.ManageChannels)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Missing Permission', `I need the **Manage Channels** permission in ${channel}.`,
+      ) } as never);
+    }
+
+    // The CALLER must be able to manage the target channel too. On the prefix
+    // path Discord's own channel-aware gate never runs, so without this a
+    // moderator denied Manage Channels in #staff could still slow it down by
+    // passing it as the channel option from somewhere else.
+    const callerMember = await guild.members.fetch(interaction.user.id).catch(() => null);
+    if (!callerMember || !channel.permissionsFor(callerMember)?.has(PermissionFlagsBits.ManageChannels)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'No Access', `You need the **Manage Channels** permission in ${channel}.`,
+      ) } as never);
     }
 
     try {

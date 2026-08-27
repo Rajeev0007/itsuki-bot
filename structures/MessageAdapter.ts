@@ -19,6 +19,8 @@ import {
   type User,
   type Guild,
   type TextBasedChannel,
+  type GuildTextBasedChannel,
+  type PermissionsBitField,
   MessageFlags,
   ContainerBuilder,
   TextDisplayBuilder,
@@ -252,6 +254,29 @@ export class MessageCommandAdapter {
 
   /** Real GuildMember — exposes .voice, .permissions, .roles etc. for music / permission checks */
   get member() { return this._msg.member; }
+
+  /**
+   * The invoker's permissions IN THIS CHANNEL, mirroring
+   * `ChatInputCommandInteraction#memberPermissions`.
+   *
+   * Commands feature-check this to decide whether the user may perform a
+   * privileged action (e.g. /steal needs Manage Expressions). It was missing
+   * entirely, so every such check read `undefined` and failed closed — which
+   * made `,steal` unusable even for the server owner, and that command's
+   * reply-based flow only exists on this adapter.
+   *
+   * Channel-aware rather than role-only so per-channel overwrites are honoured.
+   */
+  get memberPermissions(): PermissionsBitField | null {
+    const member = this._msg.member;
+    if (!member) return null;
+    const channel = this._msg.channel;
+    if (channel && 'permissionsFor' in channel) {
+      const resolved = (channel as GuildTextBasedChannel).permissionsFor(member);
+      if (resolved) return resolved;
+    }
+    return member.permissions;
+  }
 
   /** The message this command replied to, if it was invoked as a reply. */
   get replyTargetId(): string | null {
