@@ -17,10 +17,13 @@ export default new Command({
       .addChannelOption((o) => o.setName('channel').setDescription('Channel (defaults to this one)')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
       .addStringOption((o) => o.setName('reason').setDescription('Reason').setMaxLength(400)))
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+    // Locking edits the @everyone permission overwrite, which the API gates
+    // behind ManageRoles ("Manage Permissions" on a channel) — NOT
+    // ManageChannels. Declare only what is actually used.
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
   category: 'moderation',
   guildOnly: true,
-  permissions: ['ManageChannels'],
+  permissions: ['ManageRoles'],
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 as never });
@@ -36,13 +39,21 @@ export default new Command({
     const guild = interaction.guild!;
     const reason = interaction.options.getString('reason') ?? 'No reason provided';
 
-    if (!ModerationManager.botHas(guild, PermissionFlagsBits.ManageChannels)) {
-      return interaction.editReply({ ...CB.errorResponse('Missing Permission', 'I need the **Manage Channels** permission.') } as never);
-    }
-
     const channel = (interaction.options.getChannel('channel') ?? interaction.channel) as TextChannel | null;
     if (!channel || typeof channel.permissionOverwrites?.edit !== 'function') {
       return interaction.editReply({ ...CB.errorResponse('Unsupported Channel', 'That channel type cannot be locked.') } as never);
+    }
+
+    // ManageRoles is surfaced as "Manage Permissions" inside a channel and can
+    // be granted per-channel, so check it on the target channel rather than
+    // guild-wide — otherwise a bot given the permission only where it needs it
+    // would be rejected here.
+    const me = guild.members.me;
+    if (!me || !channel.permissionsFor(me)?.has(PermissionFlagsBits.ManageRoles)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Missing Permission',
+        `I need the **Manage Permissions** permission in ${channel} to change who can send messages there.`,
+      ) } as never);
     }
 
     const everyone = guild.roles.everyone;
