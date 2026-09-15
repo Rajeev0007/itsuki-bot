@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables — never commit this
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Live database contents. Data belongs in MongoDB, not in git — committing it
+# bloated the repo and made every deploy a potential merge conflict over
+# somebody's balance. The legacy JSON files are kept locally only so
+# `npm run migrate` can still read them.
+database/*.json
+database/backups/

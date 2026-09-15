@@ -1,0 +1,245 @@
+/**
+ * @file EconomyManager.ts
+ * @description High-level economy operations: income, banking, transfers.
+ */
+
+import UserManager  from './UserManager';
+import config       from '../config/config';
+import fmt          from '../utils/Formatter';
+import { getStore } from '../database/Store';
+
+const economyDB = getStore('economy');
+
+/**
+ * A daily streak survives a grace period of one extra day. Claim within
+ * 48 h of the last claim and the streak continues; miss that window and it
+ * restarts at 1. Previously the streak only ever went up, so every long-term
+ * user sat permanently at the +50% cap.
+ */
+const STREAK_GRACE_MS = config.cooldowns.daily * 2;
+
+const EconomyManager = {
+  async daily(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.daily - (now - eco.lastDaily);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    const previous = Math.max(0, Number(eco.dailyStreak) || 0);
+    const missed   = eco.lastDaily > 0 && (now - eco.lastDaily) > STREAK_GRACE_MS;
+    const streak   = missed ? 1 : previous + 1;
+
+    const bonus  = Math.min(streak * 0.05, 0.5);
+    const base   = fmt.randomInt(config.economy.daily.min, config.economy.daily.max);
+    // addEarnings layers the prestige bonus on top of the streak bonus.
+    const amount = await UserManager.addEarnings(userId, Math.floor(base * (1 + bonus)));
+
+    await economyDB.set(`${userId}.lastDaily`, now);
+    await economyDB.set(`${userId}.dailyStreak`, streak);
+    await UserManager.recordTransaction(userId, 'daily', amount, 'Daily reward');
+    await UserManager.grantAchievement(userId, 'first_daily');
+    await UserManager.checkAchievements(userId);
+    return { success: true as const, amount, streak, streakReset: missed && previous > 0 };
+  },
+
+  async weekly(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.weekly - (now - eco.lastWeekly);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    const amount = await UserManager.addEarnings(
+      userId, fmt.randomInt(config.economy.weekly.min, config.economy.weekly.max),
+    );
+    await economyDB.set(`${userId}.lastWeekly`, now);
+    await UserManager.recordTransaction(userId, 'weekly', amount, 'Weekly reward');
+    await UserManager.checkAchievements(userId);
+    return { success: true as const, amount };
+  },
+
+  async monthly(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.monthly - (now - eco.lastMonthly);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    const amount = await UserManager.addEarnings(
+      userId, fmt.randomInt(config.economy.monthly.min, config.economy.monthly.max),
+    );
+    await economyDB.set(`${userId}.lastMonthly`, now);
+    await UserManager.recordTransaction(userId, 'monthly', amount, 'Monthly reward');
+    await UserManager.checkAchievements(userId);
+    return { success: true as const, amount };
+  },
+
+  async work(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.work - (now - eco.lastWork);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    const job    = fmt.randomItem(config.economy.workJobs);
+    const amount = await UserManager.addEarnings(userId, fmt.randomInt(job.min, job.max));
+    await economyDB.set(`${userId}.lastWork`, now);
+    await UserManager.recordTransaction(userId, 'work', amount, `Worked as ${job.name}`);
+    await UserManager.checkAchievements(userId);
+    return { success: true as const, amount, job: job.name };
+  },
+
+  async crime(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.crime - (now - eco.lastCrime);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    await economyDB.set(`${userId}.lastCrime`, now);
+    await UserManager.incrementStat(userId, 'crimeCount');
+
+    if (Math.random() < config.economy.crimeSuccessRate) {
+      const amount = await UserManager.addEarnings(
+        userId, fmt.randomInt(config.economy.crimeRewards.min, config.economy.crimeRewards.max),
+      );
+      await UserManager.recordTransaction(userId, 'crime', amount, 'Successful crime');
+      await UserManager.incrementStat(userId, 'crimeSuccess');
+      await UserManager.checkAchievements(userId);
+      return { success: true as const, amount };
+    } else {
+      const fine       = fmt.randomInt(config.economy.crimeFines.min, config.economy.crimeFines.max);
+      const current    = (await UserManager.getBalance(userId)).wallet;
+      const actualFine = Math.min(fine, current);
+      await UserManager.addWallet(userId, -actualFine);
+      await UserManager.recordTransaction(userId, 'fine', -actualFine, 'Crime fine');
+      return { success: false as const, fine: actualFine };
+    }
+  },
+
+  async beg(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.beg - (now - eco.lastBeg);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    await economyDB.set(`${userId}.lastBeg`, now);
+
+    if (Math.random() < config.economy.begChance) {
+      const amount = await UserManager.addEarnings(
+        userId, fmt.randomInt(config.economy.begRewards.min, config.economy.begRewards.max),
+      );
+      await UserManager.recordTransaction(userId, 'beg', amount, 'Begged for coins');
+      return { success: true as const, amount };
+    }
+    return { success: false as const };
+  },
+
+  async search(userId: string) {
+    const eco       = await UserManager.getEconomy(userId);
+    const now       = Date.now();
+    const remaining = config.cooldowns.search - (now - eco.lastSearch);
+    if (remaining > 0) return { success: false as const, remaining };
+
+    const location  = fmt.randomItem(config.economy.searchLocations);
+    const found     = Math.random() > config.economy.searchFailChance;
+    await economyDB.set(`${userId}.lastSearch`, now);
+
+    if (found) {
+      const amount = await UserManager.addEarnings(
+        userId, fmt.randomInt(config.economy.searchRewards.min, config.economy.searchRewards.max),
+      );
+      await UserManager.recordTransaction(userId, 'search', amount, `Found coins in ${location}`);
+      return { success: true as const, amount, location };
+    }
+    return { success: false as const, location };
+  },
+
+  async rob(attackerId: string, targetId: string) {
+    if (attackerId === targetId) return { success: false as const, reason: 'self' as const };
+
+    const attackerEco = await UserManager.getEconomy(attackerId);
+    const targetEco   = await UserManager.getEconomy(targetId);
+    const now         = Date.now();
+    const remaining   = config.cooldowns.rob - (now - attackerEco.lastRob);
+    if (remaining > 0) return { success: false as const, remaining, reason: 'cooldown' as const };
+    if (targetEco.wallet < config.economy.robMinWallet)
+      return { success: false as const, reason: 'too_poor' as const };
+
+    // The attacker has to be able to cover the fine they risk. Without this a
+    // broke user could spam robs for a completely free roll, because the fine
+    // was clamped down to whatever they had — i.e. zero.
+    if (attackerEco.wallet < config.economy.robFine.min)
+      return {
+        success: false as const,
+        reason: 'no_collateral' as const,
+        needed: config.economy.robFine.min,
+      };
+
+    await UserManager.incrementStat(attackerId, 'robCount');
+    await economyDB.set(`${attackerId}.lastRob`, now);
+
+    if (Math.random() < config.economy.robChance) {
+      const pct    = fmt.randomInt(Math.floor(config.economy.robPercent.min * 100), Math.floor(config.economy.robPercent.max * 100)) / 100;
+      const stolen = Math.floor(targetEco.wallet * pct);
+      if (stolen <= 0) return { success: false as const, reason: 'too_poor' as const };
+      await UserManager.addWallet(targetId,   -stolen);
+      await UserManager.addWallet(attackerId,  stolen);
+      await UserManager.recordTransaction(attackerId, 'rob',   stolen,  `Robbed <@${targetId}>`);
+      await UserManager.recordTransaction(targetId,   'robbed', -stolen, `Robbed by <@${attackerId}>`);
+      await UserManager.incrementStat(attackerId, 'robSuccess');
+      return { success: true as const, stolen };
+    } else {
+      const fine       = fmt.randomInt(config.economy.robFine.min, config.economy.robFine.max);
+      const actualFine = Math.min(fine, attackerEco.wallet);
+      await UserManager.addWallet(attackerId, -actualFine);
+      await UserManager.recordTransaction(attackerId, 'fine', -actualFine, 'Failed rob attempt');
+      return { success: false as const, reason: 'caught' as const, fine: actualFine };
+    }
+  },
+
+  async deposit(userId: string, amount: number) {
+    const { wallet, bank } = await UserManager.getBalance(userId);
+    if (amount <= 0)             return { success: false as const, reason: 'invalid_amount' as const };
+    if (amount > wallet)         return { success: false as const, reason: 'insufficient_funds' as const };
+    if (bank + amount > config.economy.bankLimit)
+      return { success: false as const, reason: 'bank_full' as const, maxDeposit: config.economy.bankLimit - bank };
+    await UserManager.addWallet(userId, -amount);
+    await UserManager.addBank(userId,   amount);
+    await UserManager.recordTransaction(userId, 'deposit', amount, 'Deposited to bank');
+    return { success: true as const, amount };
+  },
+
+  async withdraw(userId: string, amount: number) {
+    const { wallet, bank } = await UserManager.getBalance(userId);
+    if (amount <= 0)                             return { success: false as const, reason: 'invalid_amount' as const };
+    if (amount > bank)                           return { success: false as const, reason: 'insufficient_bank' as const };
+    if (wallet + amount > config.economy.maxWallet) return { success: false as const, reason: 'wallet_full' as const };
+    await UserManager.addBank(userId,   -amount);
+    await UserManager.addWallet(userId,  amount);
+    await UserManager.recordTransaction(userId, 'withdraw', amount, 'Withdrew from bank');
+    return { success: true as const, amount };
+  },
+
+  async transfer(senderId: string, receiverId: string, amount: number) {
+    if (senderId === receiverId) return { success: false as const, reason: 'self_transfer' as const };
+    if (!Number.isFinite(amount) || amount <= 0)
+      return { success: false as const, reason: 'invalid_amount' as const };
+
+    const sendAmount = Math.floor(amount);
+    const senderBal  = (await UserManager.getBalance(senderId)).wallet;
+    if (sendAmount > senderBal) return { success: false as const, reason: 'insufficient_funds' as const };
+
+    // Wallets are clamped to maxWallet, so transferring into a nearly-full
+    // wallet would silently destroy the overflow. Reject instead of burning it.
+    const receiverBal = (await UserManager.getBalance(receiverId)).wallet;
+    const capacity    = config.economy.maxWallet - receiverBal;
+    if (sendAmount > capacity) {
+      return { success: false as const, reason: 'receiver_wallet_full' as const, capacity: Math.max(0, capacity) };
+    }
+
+    await UserManager.addWallet(senderId,   -sendAmount);
+    await UserManager.addWallet(receiverId,  sendAmount);
+    await UserManager.recordTransaction(senderId,   'transfer_out', -sendAmount, `Sent to <@${receiverId}>`);
+    await UserManager.recordTransaction(receiverId, 'transfer_in',  sendAmount,  `Received from <@${senderId}>`);
+    return { success: true as const, amount: sendAmount };
+  },
+};
+
+export default EconomyManager;

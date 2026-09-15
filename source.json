@@ -1,0 +1,153 @@
+{
+  "sources": {
+    "youtube": {
+      "enabled": true,
+      "clients": {
+        "search": ["TVHTML5_SIMPLY", "MUSIC_ANDROID", "ANDROID", "WEB"],
+        "playback": [
+          "ANDROID_VR",
+          "TV_CAST",
+          "WEB_EMBEDDED",
+          "TV",
+          "WEB",
+          "IOS",
+          "MWEB"
+        ],
+        "resolve": [
+          "TVHTML5_SIMPLY",
+          "TVHTML5_UNPLUGGED",
+          "WEB",
+          "MWEB",
+          "IOS",
+          "ANDROID"
+        ]
+      },
+      "cipher": {
+        "url": "https://cipher.kikkia.dev/api",
+        "token": null
+      },
+      "refresh_tokens": [],
+      "get_oauth_token": false
+    },
+    "jiosaavn": {
+      "enabled": false,
+      "search_limit": 10,
+      "recommendations_limit": 10,
+      "playlist_load_limit": 50,
+      "album_load_limit": 50,
+      "artist_load_limit": 20,
+      "decryption": {
+        "secret_key": "38346591"
+      },
+      "api_url": "https://www.jiosaavn.com/api.php"
+    },
+    "spotify": {
+      "enabled": true,
+      "search_limit": 10,
+      "recommendations_limit": 10,
+      "playlist_load_limit": 6,
+      "album_load_limit": 6,
+      "playlist_page_load_concurrency": 10,
+      "album_page_load_concurrency": 5,
+      "track_resolve_concurrency": 50,
+      "client_id": null,
+      "client_secret": null
+    },
+    "soundcloud": {
+      "enabled": true,
+      "search_limit": 10,
+      "playlist_load_limit": 100,
+      "client_id": null
+    },
+    "applemusic": {
+      "enabled": true,
+      "country_code": "us",
+      "playlist_load_limit": 0,
+      "album_load_limit": 0,
+      "playlist_page_load_concurrency": 5,
+      "album_page_load_concurrency": 5
+    },
+    "deezer": { "enabled": false, "arls": null, "master_decryption_key": null },
+    "tidal": {
+      "enabled": false,
+      "country_code": "us",
+      "quality": "HIGH",
+      "refresh_token": null,
+      "playlist_load_limit": 50,
+      "album_load_limit": 50,
+      "artist_load_limit": 20
+    },
+    "yandexmusic": {
+      "enabled": false,
+      "access_token": null,
+      "search_limit": 10,
+      "playlist_load_limit": 6,
+      "album_load_limit": 6,
+      "artist_load_limit": 6
+    },
+    "vkmusic": {
+      "enabled": false,
+      "user_token": null,
+      "user_cookie": null,
+      "search_limit": 10,
+      "playlist_load_limit": 1,
+      "artist_load_limit": 1,
+      "recommendations_load_limit": 10
+    },
+    "netease": { "enabled": false, "search_limit": 10 },
+    "amazonmusic": { "enabled": false, "search_limit": 3 },
+    "gaana": {
+      "enabled": false,
+      "search_limit": 10,
+      "playlist_load_limit": 50,
+      "album_load_limit": 50,
+      "artist_load_limit": 20
+    },
+    "anghami": { "enabled": false, "search_limit": 10 },
+    "audiomack": { "enabled": false, "search_limit": 20 },
+    "audius": {
+      "enabled": false,
+      "search_limit": 10,
+      "playlist_load_limit": 100,
+      "album_load_limit": 100
+    },
+    "bandcamp": { "enabled": false, "search_limit": 10 },
+    "mixcloud": { "enabled": false, "search_limit": 10 },
+    "pandora": { "enabled": false, "search_limit": 10, "playlist_load_limit": 100 },
+    "qobuz": {
+      "enabled": false,
+      "user_token": null,
+      "app_id": null,
+      "app_secret": null,
+      "search_limit": 10,
+      "playlist_load_limit": 100,
+      "album_load_limit": 50,
+      "artist_load_limit": 20
+    },
+    "shazam": { "enabled": false, "search_limit": 10 },
+    "lastfm": { "enabled": false, "api_key": null, "search_limit": 10 },
+    "reddit": { "enabled": false },
+    "twitch": { "enabled": false, "client_id": null },
+    "flowery": {
+      "enabled": false,
+      "voice": "Salli",
+      "translate": false,
+      "silence": 0,
+      "speed": 1.0,
+      "enforce_config": false
+    },
+    "google_tts": { "enabled": false, "language": "en-US" },
+    "http": { "enabled": true },
+    "local": { "enabled": false }
+  },
+  "route_planner": {
+    "enabled": false,
+    "cidrs": [],
+    "excluded_ips": []
+  },
+  "player": {
+    "mirrors": {
+      "providers": ["ytsearch:%ISRC%", "ytsearch:%QUERY%", "scsearch:%QUERY%"]
+    }
+  }
+}
