@@ -100,7 +100,7 @@ export async function buildCollectionPage(opts: {
     logger.warn(`[collection] Grid render failed, using text list: ${(err as Error).message}`);
     const lines = slice.map((c) => {
       const s = effectiveStats(c);
-      return `${RARITIES[c.rarity].emoji} **${c.name}** — Lv.${c.level} · ATK ${fmt.number(s.attack)} · HP ${fmt.number(s.health)}`;
+      return `${RARITIES[c.rarity].emoji} **${c.name}** — Lv.${c.level ?? 1} · ATK ${fmt.number(s.attack)} · HP ${fmt.number(s.health)}`;
     });
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));

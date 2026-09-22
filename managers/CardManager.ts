@@ -287,7 +287,7 @@ const CardManager = {
   async listCard(userId: string, cardId: number, price: number): Promise<ListingResult> {
     const card = await this.getCard(userId, cardId);
     if (!card) return { ok: false, reason: 'You do not own that card.' };
-    if (card.locked) return { ok: false, reason: `**${card.name}** is locked. Unlock it first with \`/card lock\`.` };
+    if (card.locked) return { ok: false, reason: `**${card.name}** is locked. Unlock it first with \`/card unlock\`.` };
 
     const floor = Math.floor((RARITIES[card.rarity]?.value ?? 250) * 0.25);
     const asking = Math.floor(Number(price) || 0);

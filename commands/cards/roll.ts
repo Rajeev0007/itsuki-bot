@@ -132,7 +132,7 @@ export default new Command({
         )),
       );
 
-      await i.update({ components: [done] } as never).catch(() => {});
+      await i.update({ components: [done], files: files.length ? files : [] } as never).catch(() => {});
     });
 
     collector.on('end', async () => {
@@ -151,7 +151,7 @@ export default new Command({
         )),
       );
       expired.addActionRowComponents(expiredRow);
-      await interaction.editReply({ components: [expired] } as never).catch(() => {});
+      await interaction.editReply({ components: [expired], files: files.length ? files : [] } as never).catch(() => {});
     });
   },
 });

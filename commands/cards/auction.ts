@@ -85,7 +85,7 @@ export default new Command({
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
           `-# Page ${page} of ${totalPages} · \`/auction buy <listing_id>\``,
         ));
-      return interaction.editReply({ components: [c] });
+      return interaction.editReply({ components: [c] } as never);
     }
 
     // ── sell ────────────────────────────────────────────────────────────────

@@ -79,6 +79,11 @@ export default new Command({
         'Opponent Has No Cards', `**${opponent.username}** has no cards to battle with.`,
       ) } as never);
     }
+    if (await CardManager.isListed(opponent.id, theirCard.id)) {
+      return interaction.editReply({ ...CB.errorResponse(
+        'Opponent Card Unavailable', `**${opponent.username}**'s best card is listed on the auction house.`,
+      ) } as never);
+    }
 
     // ── Fight ───────────────────────────────────────────────────────────────
     const { winner, rounds } = CardManager.simulateBattle(myCard, theirCard);

@@ -228,7 +228,7 @@ export async function renderCollection(opts: {
 
   ctx.fillStyle = MUTED;
   ctx.font = '13px sans-serif';
-  drawText(ctx, '/card view <name> to inspect · /auction list to sell', PAD, H - 18);
+  drawText(ctx, '/card view <name> to inspect · /auction sell to sell', PAD, H - 18);
 
   return canvas.toBuffer('image/png');
 }
